@@ -1,0 +1,181 @@
+import { Injectable } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { SaleFilter } from 'src/dtos/sale/sale.filter.dto';
+import { SalesTrendFilter } from 'src/dtos/sale/sales.trend.filter.dto';
+import { SaleItem } from 'src/models/sale/sale-item.model';
+import { ShopInfo } from 'src/models/shop/shop-info.model';
+import { UserInfo } from 'src/models/user/user-info.model';
+import { VendorInfo } from 'src/models/vendor/vendor-info.model';
+import { SalePaymentMethod, SaleStatus, SalesTrendGroupBy } from 'src/enums';
+import { Sale } from 'src/schemas/sale.schema';
+import { generateId, toPaginationInfo } from 'src/utils';
+
+export type CreateSaleRecord = {
+  shopId: string;
+  shopInfoSnapshot: ShopInfo;
+  cashierId: string;
+  cashierInfoSnapshot: UserInfo;
+  receiptNo: string;
+  items: SaleItem[];
+  subtotal: number;
+  discount: number;
+  total: number;
+  paymentMethod: SalePaymentMethod;
+  amountTendered?: number;
+  changeGiven?: number;
+  vendorId?: string;
+  vendorInfoSnapshot?: VendorInfo;
+};
+
+@Injectable()
+export class SaleRepository {
+  constructor(
+    @InjectModel(Sale.name) private readonly saleRepository: Model<Sale>,
+  ) {}
+
+  //get by id
+  async getById(id: string): Promise<Sale> {
+    return await this.saleRepository.findOne({ id }).lean();
+  }
+
+  //list, optionally scoped by shop/cashier/payment method/status
+  async list(
+    filter: SaleFilter,
+  ): Promise<{ results: Sale[]; totalCount: number }> {
+    const { page, pageSize } = toPaginationInfo(filter);
+    const query: any = {};
+    if (filter?.shopId) query.shopId = filter.shopId;
+    if (filter?.cashierId) query.cashierId = filter.cashierId;
+    if (filter?.paymentMethod) query.paymentMethod = filter.paymentMethod;
+    if (filter?.status) query.status = filter.status;
+
+    const [results, totalCount] = await Promise.all([
+      this.saleRepository
+        .find(query)
+        .sort({ createdAt: -1, _id: 1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize)
+        .lean(),
+      this.saleRepository.countDocuments(query),
+    ]);
+
+    return { results, totalCount };
+  }
+
+  //value1/value2, grouped by the requested dimension - Hour/Day/Week/Month/
+  //Year bucket by createdAt (UTC); Shop/Cashier group by that id instead,
+  //reading a display name straight off the sale's own snapshot (no extra
+  //lookup needed). Scoped by the same filters as list() plus the date
+  //range - defaults to completed sales, since that's what "revenue" means.
+  //
+  //Without `inventoryId`: value1 = revenue (sum of sale.total), value2 =
+  //transaction count - the whole-sale view.
+  //With `inventoryId`: sale.items is unwound and filtered down to just that
+  //item first, so value1 = units of it sold, value2 = revenue it generated
+  //- a per-product view, scoped inside otherwise-unrelated sales.
+  async getTrend(
+    filter: SalesTrendFilter,
+  ): Promise<{ key: string; label: string; value1: number; value2: number }[]> {
+    const match: any = { status: filter?.status ?? SaleStatus.Completed };
+    if (filter?.shopId) match.shopId = filter.shopId;
+    if (filter?.cashierId) match.cashierId = filter.cashierId;
+    if (filter?.paymentMethod) match.paymentMethod = filter.paymentMethod;
+    if (filter?.startDate || filter?.endDate) {
+      match.createdAt = {};
+      if (filter.startDate) match.createdAt.$gte = new Date(filter.startDate);
+      if (filter.endDate) match.createdAt.$lte = new Date(filter.endDate);
+    }
+
+    const isCategory = filter?.groupBy === SalesTrendGroupBy.Category;
+    const pipeline: any[] = [{ $match: match }];
+    if (filter?.inventoryId || isCategory) {
+      pipeline.push({ $unwind: '$items' });
+      if (filter?.inventoryId) {
+        pipeline.push({ $match: { 'items.inventoryId': filter.inventoryId } });
+      }
+    }
+    // Sale items don't snapshot a categoryId, so grouping by category needs
+    // a live join to Inventory - unlike Shop/Cashier, whose names/ids are
+    // already denormalised onto the sale itself.
+    if (isCategory) {
+      pipeline.push({
+        $lookup: {
+          from: 'inventories',
+          localField: 'items.inventoryId',
+          foreignField: 'id',
+          as: 'inventoryDoc',
+        },
+      });
+      pipeline.push({ $unwind: { path: '$inventoryDoc', preserveNullAndEmptyArrays: true } });
+    }
+
+    const group: any = isCategory
+      ? {
+          value1: { $sum: '$items.lineTotal' },
+          value2: { $sum: '$items.quantity' },
+        }
+      : filter?.inventoryId
+        ? {
+            value1: { $sum: '$items.quantity' },
+            value2: { $sum: '$items.lineTotal' },
+          }
+        : {
+            value1: { $sum: '$total' },
+            value2: { $sum: 1 },
+          };
+    switch (filter?.groupBy) {
+      case SalesTrendGroupBy.Hour:
+        group._id = { $dateToString: { format: '%Y-%m-%dT%H:00', date: '$createdAt' } };
+        break;
+      case SalesTrendGroupBy.Week:
+        group._id = { $dateToString: { format: '%G-W%V', date: '$createdAt' } };
+        break;
+      case SalesTrendGroupBy.Month:
+        group._id = { $dateToString: { format: '%Y-%m', date: '$createdAt' } };
+        break;
+      case SalesTrendGroupBy.Year:
+        group._id = { $dateToString: { format: '%Y', date: '$createdAt' } };
+        break;
+      case SalesTrendGroupBy.Shop:
+        group._id = '$shopId';
+        group.label = { $first: '$shopInfoSnapshot.name' };
+        break;
+      case SalesTrendGroupBy.Cashier:
+        group._id = '$cashierId';
+        group.label = { $first: '$cashierInfoSnapshot.name' };
+        break;
+      case SalesTrendGroupBy.Category:
+        // the service resolves this raw categoryId to a name via
+        // CategoryRepository, the same way InventoryService.getStockBreakdown
+        // already does for the warehouse breakdown chart
+        group._id = '$inventoryDoc.categoryId';
+        break;
+      case SalesTrendGroupBy.Day:
+      default:
+        group._id = { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } };
+        break;
+    }
+    pipeline.push({ $group: group });
+    pipeline.push({ $sort: { _id: 1 } });
+
+    const results = await this.saleRepository.aggregate(pipeline);
+
+    return results.map((r) => ({
+      key: r._id,
+      label: r.label ?? r._id,
+      value1: r.value1,
+      value2: r.value2,
+    }));
+  }
+
+  //record a completed sale - everything here is already resolved server-side
+  async create(record: CreateSaleRecord): Promise<Sale> {
+    const res = await this.saleRepository.create({
+      ...record,
+      id: generateId(),
+      status: SaleStatus.Completed,
+    });
+    return await this.saleRepository.findById(res._id).lean();
+  }
+}
