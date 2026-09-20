@@ -27,7 +27,11 @@ export class UserAuthSession extends BaseSchema {
   @ApiProperty()
   agent: string;
 
-  @Prop({ enum: UserAuthSessionStatus, default: UserAuthSessionStatus.Active })
+  @Prop({
+    type: String,
+    enum: UserAuthSessionStatus,
+    default: UserAuthSessionStatus.Active,
+  })
   @ApiProperty({ enum: UserAuthSessionStatus })
   status: UserAuthSessionStatus;
 

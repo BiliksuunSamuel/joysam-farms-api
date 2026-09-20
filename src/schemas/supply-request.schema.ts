@@ -27,7 +27,11 @@ export class SupplyRequest extends BaseSchema {
   @ApiProperty({ type: [SupplyRequestItem] })
   items: SupplyRequestItem[];
 
-  @Prop({ enum: SupplyRequestStatus, default: SupplyRequestStatus.Pending })
+  @Prop({
+    type: String,
+    enum: SupplyRequestStatus,
+    default: SupplyRequestStatus.Pending,
+  })
   @ApiProperty({ enum: SupplyRequestStatus })
   status: SupplyRequestStatus;
 

@@ -13,7 +13,7 @@ import { SalePaymentMethod } from 'src/enums';
 // decorated with @Schema(); without it this embeds as empty.
 @Schema({ _id: false })
 export class PaymentSplit {
-  @Prop({ enum: SalePaymentMethod, required: true })
+  @Prop({ type: String, enum: SalePaymentMethod, required: true })
   @ApiProperty({ enum: SalePaymentMethod })
   method: SalePaymentMethod;
 

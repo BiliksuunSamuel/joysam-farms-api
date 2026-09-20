@@ -17,11 +17,11 @@ export class LedgerEntry extends BaseSchema {
   @ApiProperty()
   shopId: string;
 
-  @Prop({ enum: LedgerEntryType, required: true })
+  @Prop({ type: String, enum: LedgerEntryType, required: true })
   @ApiProperty({ enum: LedgerEntryType })
   type: LedgerEntryType;
 
-  @Prop({ enum: LedgerSource, required: true })
+  @Prop({ type: String, enum: LedgerSource, required: true })
   @ApiProperty({ enum: LedgerSource })
   source: LedgerSource;
 

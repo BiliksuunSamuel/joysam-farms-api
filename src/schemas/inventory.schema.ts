@@ -17,7 +17,7 @@ export class Inventory extends BaseSchema {
   @ApiProperty()
   categoryId: string;
 
-  @Prop({ enum: Unit, default: null })
+  @Prop({ type: String, enum: Unit, default: null })
   @ApiProperty({ enum: Unit })
   unit: Unit;
 

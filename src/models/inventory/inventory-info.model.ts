@@ -29,7 +29,7 @@ export class InventoryInfo {
   @ApiProperty()
   description: string;
 
-  @Prop({ enum: Unit, default: null })
+  @Prop({ type: String, enum: Unit, default: null })
   @ApiProperty({ enum: Unit })
   unit: Unit;
 

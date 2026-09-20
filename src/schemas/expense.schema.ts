@@ -22,7 +22,7 @@ export class Expense extends BaseSchema {
   @ApiProperty()
   description: string;
 
-  @Prop({ enum: ExpenseCategory, required: true })
+  @Prop({ type: String, enum: ExpenseCategory, required: true })
   @ApiProperty({ enum: ExpenseCategory })
   category: ExpenseCategory;
 
@@ -43,11 +43,11 @@ export class Expense extends BaseSchema {
   @ApiProperty()
   amount: number;
 
-  @Prop({ enum: ExpensePaymentMethod, required: true })
+  @Prop({ type: String, enum: ExpensePaymentMethod, required: true })
   @ApiProperty({ enum: ExpensePaymentMethod })
   paymentMethod: ExpensePaymentMethod;
 
-  @Prop({ enum: ExpenseStatus, default: ExpenseStatus.Pending })
+  @Prop({ type: String, enum: ExpenseStatus, default: ExpenseStatus.Pending })
   @ApiProperty({ enum: ExpenseStatus })
   status: ExpenseStatus;
 

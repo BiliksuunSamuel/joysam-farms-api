@@ -27,7 +27,11 @@ export class StockRequest extends BaseSchema {
   @ApiProperty({ type: [StockRequestItem] })
   items: StockRequestItem[];
 
-  @Prop({ enum: StockRequestStatus, default: StockRequestStatus.Pending })
+  @Prop({
+    type: String,
+    enum: StockRequestStatus,
+    default: StockRequestStatus.Pending,
+  })
   @ApiProperty({ enum: StockRequestStatus })
   status: StockRequestStatus;
 

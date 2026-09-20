@@ -30,7 +30,7 @@ export class Supplier extends BaseSchema {
   @ApiProperty()
   supplies: string;
 
-  @Prop({ enum: SupplierStatus, default: SupplierStatus.Active })
+  @Prop({ type: String, enum: SupplierStatus, default: SupplierStatus.Active })
   @ApiProperty({ enum: SupplierStatus })
   status: SupplierStatus;
 }

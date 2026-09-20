@@ -23,7 +23,7 @@ export class Category extends BaseSchema {
   @ApiProperty()
   perishable: boolean;
 
-  @Prop({ enum: Unit, default: null })
+  @Prop({ type: String, enum: Unit, default: null })
   @ApiProperty({ enum: Unit })
   defaultUnit: Unit;
 }

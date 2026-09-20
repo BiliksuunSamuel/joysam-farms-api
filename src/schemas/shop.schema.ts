@@ -27,11 +27,11 @@ export class Shop extends BaseSchema {
   @ApiProperty()
   managerId: string;
 
-  @Prop({ enum: ShopStatus, default: ShopStatus.Open })
+  @Prop({ type: String, enum: ShopStatus, default: ShopStatus.Open })
   @ApiProperty({ enum: ShopStatus })
   status: ShopStatus;
 
-  @Prop({ enum: ShopType, default: ShopType.GeneralStore })
+  @Prop({ type: String, enum: ShopType, default: ShopType.GeneralStore })
   @ApiProperty({ enum: ShopType })
   type: ShopType;
 

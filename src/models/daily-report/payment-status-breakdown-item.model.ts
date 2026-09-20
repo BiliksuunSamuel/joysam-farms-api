@@ -4,7 +4,7 @@ import { PaymentTransactionStatus } from 'src/enums';
 
 @Schema({ _id: false })
 export class PaymentStatusBreakdownItem {
-  @Prop({ enum: PaymentTransactionStatus, required: true })
+  @Prop({ type: String, enum: PaymentTransactionStatus, required: true })
   @ApiProperty({ enum: PaymentTransactionStatus })
   status: PaymentTransactionStatus;
 

@@ -4,7 +4,7 @@ import { ExpenseCategory } from 'src/enums';
 
 @Schema({ _id: false })
 export class ExpenseCategoryBreakdownItem {
-  @Prop({ enum: ExpenseCategory, required: true })
+  @Prop({ type: String, enum: ExpenseCategory, required: true })
   @ApiProperty({ enum: ExpenseCategory })
   category: ExpenseCategory;
 

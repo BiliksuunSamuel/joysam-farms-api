@@ -13,7 +13,7 @@ export class OperatingHour {
   @ApiProperty()
   id: string;
 
-  @Prop({ required: true, enum: WeekDay })
+  @Prop({ type: String, required: true, enum: WeekDay })
   @ApiProperty({ enum: WeekDay })
   day: WeekDay;
 

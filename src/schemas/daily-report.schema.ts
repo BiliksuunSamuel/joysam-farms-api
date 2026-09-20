@@ -25,7 +25,7 @@ const InventoryMovementSchema = SchemaFactory.createForClass(InventoryMovement);
 // document for that (shopId, date).
 @Schema()
 export class DailyReport extends BaseSchema {
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   @ApiProperty()
   shopId: string | null;
 

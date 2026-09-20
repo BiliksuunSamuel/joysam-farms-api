@@ -41,7 +41,7 @@ export class Transfer extends BaseSchema {
   @ApiProperty()
   quantity: number;
 
-  @Prop({ enum: TransferStatus, default: TransferStatus.Pending })
+  @Prop({ type: String, enum: TransferStatus, default: TransferStatus.Pending })
   @ApiProperty({ enum: TransferStatus })
   status: TransferStatus;
 

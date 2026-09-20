@@ -6,7 +6,7 @@ import { ApiProperty } from '@nestjs/swagger';
 // mirrors).
 @Schema({ _id: false })
 export class SalesCategoryBreakdownItem {
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   @ApiProperty()
   categoryId: string | null;
 

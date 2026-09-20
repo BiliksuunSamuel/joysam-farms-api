@@ -56,7 +56,7 @@ export class Sale extends BaseSchema {
   @ApiProperty()
   total: number;
 
-  @Prop({ enum: SalePaymentMethod, required: true })
+  @Prop({ type: String, enum: SalePaymentMethod, required: true })
   @ApiProperty({ enum: SalePaymentMethod })
   paymentMethod: SalePaymentMethod;
 
@@ -92,7 +92,7 @@ export class Sale extends BaseSchema {
   @ApiProperty({ type: [PaymentSplit] })
   payments: PaymentSplit[];
 
-  @Prop({ enum: SaleStatus, default: SaleStatus.Completed })
+  @Prop({ type: String, enum: SaleStatus, default: SaleStatus.Completed })
   @ApiProperty({ enum: SaleStatus })
   status: SaleStatus;
 

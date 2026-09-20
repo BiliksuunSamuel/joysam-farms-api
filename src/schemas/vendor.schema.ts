@@ -39,7 +39,7 @@ export class Vendor extends BaseSchema {
 
   // A deliberate freeze on new credit sales - distinct from "overdue", which
   // is always computed from the ledger, never stored.
-  @Prop({ enum: VendorStatus, default: VendorStatus.Active })
+  @Prop({ type: String, enum: VendorStatus, default: VendorStatus.Active })
   @ApiProperty({ enum: VendorStatus })
   status: VendorStatus;
 }

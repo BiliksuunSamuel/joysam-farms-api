@@ -8,7 +8,7 @@ import { SalePaymentMethod } from 'src/enums';
 // SaleRepository.getPaymentMethodTotals.
 @Schema({ _id: false })
 export class PaymentMethodBreakdownItem {
-  @Prop({ enum: SalePaymentMethod, required: true })
+  @Prop({ type: String, enum: SalePaymentMethod, required: true })
   @ApiProperty({ enum: SalePaymentMethod })
   method: SalePaymentMethod;
 

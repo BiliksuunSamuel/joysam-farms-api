@@ -13,7 +13,7 @@ import constants from 'src/constants';
 import { AuthMiddleware } from 'src/middlewares/auth.middleware';
 import { AuditLogInterceptor } from 'src/providers/audit-log.interceptor';
 import { PermissionsGuard } from 'src/providers/permissions.guard';
-import { HttpModule } from 'node_modules/@nestjs/axios/dist/http.module';
+import { HttpModule } from '@nestjs/axios';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({

@@ -58,7 +58,11 @@ export class Settings extends BaseSchema {
   // for a low-stock report/alert yet, so there's no behaviour to attach
   // these to (unlike transfersRequireApproval/stockAdjustmentsRequireReason
   // below, which gate real, existing endpoints).
-  @Prop({ enum: LowStockThresholdMode, default: LowStockThresholdMode.FixedQuantity })
+  @Prop({
+    type: String,
+    enum: LowStockThresholdMode,
+    default: LowStockThresholdMode.FixedQuantity,
+  })
   @ApiProperty({ enum: LowStockThresholdMode })
   lowStockThresholdMode: LowStockThresholdMode;
 

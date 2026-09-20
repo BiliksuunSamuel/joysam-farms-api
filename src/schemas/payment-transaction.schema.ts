@@ -41,6 +41,7 @@ export class PaymentTransaction extends BaseSchema {
   email: string;
 
   @Prop({
+    type: String,
     enum: PaymentTransactionStatus,
     default: PaymentTransactionStatus.Pending,
   })

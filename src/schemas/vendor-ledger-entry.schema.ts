@@ -26,7 +26,7 @@ export class VendorLedgerEntry extends BaseSchema {
   @ApiProperty()
   date: Date;
 
-  @Prop({ enum: VendorLedgerEntryType, required: true })
+  @Prop({ type: String, enum: VendorLedgerEntryType, required: true })
   @ApiProperty({ enum: VendorLedgerEntryType })
   type: VendorLedgerEntryType;
 
@@ -79,7 +79,7 @@ export class VendorLedgerEntry extends BaseSchema {
   shopInfoSnapshot: ShopInfo;
 
   // Payment only.
-  @Prop({ enum: VendorPaymentMethod, default: null })
+  @Prop({ type: String, enum: VendorPaymentMethod, default: null })
   @ApiProperty({ enum: VendorPaymentMethod })
   paymentMethod: VendorPaymentMethod;
 

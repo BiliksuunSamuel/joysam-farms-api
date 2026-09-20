@@ -27,7 +27,7 @@ export class User extends BaseSchema {
   @ApiProperty()
   roleId: string;
 
-  @Prop({ enum: UserStatus, default: UserStatus.Active })
+  @Prop({ type: String, enum: UserStatus, default: UserStatus.Active })
   @ApiProperty({ enum: UserStatus })
   status: UserStatus;
 
