@@ -52,4 +52,11 @@ export class Transfer extends BaseSchema {
   @Prop({ default: null })
   @ApiProperty()
   approvedById: string;
+
+  // Set only when status flips to Completed - createdAt is when the
+  // transfer was initiated (still Pending), which can be a different
+  // calendar day than when it actually moved stock.
+  @Prop({ default: null })
+  @ApiProperty()
+  completedAt: Date;
 }

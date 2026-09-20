@@ -95,6 +95,18 @@ export class StockRequestRepository {
     }));
   }
 
+  //how many requests were raised in a fixed date range - used by the Daily
+  //Report's inventory movement section. shopId undefined = every shop.
+  async countCreated(
+    shopId: string | undefined,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<number> {
+    const query: any = { createdAt: { $gte: startDate, $lt: endDate } };
+    if (shopId) query.shopId = shopId;
+    return await this.stockRequestRepository.countDocuments(query);
+  }
+
   //raise a request (status Pending)
   async create(request: {
     shopId: string;

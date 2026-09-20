@@ -3,6 +3,7 @@ import { ApiResponseDto } from 'src/dtos/common/api.response.dto';
 import { PagedResults } from 'src/dtos/common/paged.results.dto';
 import { LedgerAdjustmentRequest } from 'src/dtos/ledger-entry/ledger-adjustment.request.dto';
 import { LedgerEntryFilter } from 'src/dtos/ledger-entry/ledger-entry.filter.dto';
+import { LedgerSummary } from 'src/dtos/ledger-entry/ledger.summary.dto';
 import { LedgerTrend } from 'src/dtos/ledger-entry/ledger.trend.dto';
 import { LedgerTrendFilter } from 'src/dtos/ledger-entry/ledger.trend.filter.dto';
 import { LedgerEntryType, LedgerSource, LedgerTrendGroupBy } from 'src/enums';
@@ -38,7 +39,10 @@ export class LedgerEntryService {
   ) {}
 
   //get by id
-  async getById(id: string, requesterId: string): Promise<ApiResponseDto<LedgerEntry>> {
+  async getById(
+    id: string,
+    requesterId: string,
+  ): Promise<ApiResponseDto<LedgerEntry>> {
     try {
       const entry = await this.ledgerEntryRepository.getById(id);
       if (!entry) {
@@ -46,7 +50,10 @@ export class LedgerEntryService {
           'Ledger entry not found',
         );
       }
-      const shopId = await resolveRequesterShopId(requesterId, this.userRepository);
+      const shopId = await resolveRequesterShopId(
+        requesterId,
+        this.userRepository,
+      );
       if (shopId && entry.shopId !== shopId) {
         return CommonResponses.NotFoundResponse<LedgerEntry>(
           'Ledger entry not found',
@@ -73,7 +80,10 @@ export class LedgerEntryService {
   ): Promise<ApiResponseDto<PagedResults<LedgerEntry>>> {
     try {
       const { page, pageSize } = toPaginationInfo(filter);
-      const shopId = await resolveRequesterShopId(requesterId, this.userRepository);
+      const shopId = await resolveRequesterShopId(
+        requesterId,
+        this.userRepository,
+      );
       const scoped = shopId ? { ...filter, shopId } : filter;
       const { results, totalCount } =
         await this.ledgerEntryRepository.list(scoped);
@@ -105,8 +115,15 @@ export class LedgerEntryService {
   ): Promise<ApiResponseDto<LedgerTrend[]>> {
     try {
       const groupBy = filter?.groupBy ?? LedgerTrendGroupBy.Day;
-      const { start, end } = resolveDayWeekMonthRange(filter?.startDate, filter?.endDate, groupBy);
-      const shopId = await resolveRequesterShopId(requesterId, this.userRepository);
+      const { start, end } = resolveDayWeekMonthRange(
+        filter?.startDate,
+        filter?.endDate,
+        groupBy,
+      );
+      const shopId = await resolveRequesterShopId(
+        requesterId,
+        this.userRepository,
+      );
 
       const rows = await this.ledgerEntryRepository.getTrend({
         ...filter,
@@ -123,16 +140,71 @@ export class LedgerEntryService {
       for (let i = 0; i < 5000; i++) {
         const key = dayWeekMonthBucketKey(cursor, groupBy);
         const row = byKey.get(key);
-        trend.push({ label: key, value1: row?.value1 ?? 0, value2: row?.value2 ?? 0 });
+        trend.push({
+          label: key,
+          value1: row?.value1 ?? 0,
+          value2: row?.value2 ?? 0,
+        });
         if (key === lastKey) break;
         cursor = advanceDayWeekMonthBucket(cursor, groupBy);
       }
 
       return CommonResponses.OkResponse<LedgerTrend[]>(trend);
     } catch (error) {
-      this.logger.error('an error occurred while getting the ledger trend', filter, error);
+      this.logger.error(
+        'an error occurred while getting the ledger trend',
+        filter,
+        error,
+      );
       return CommonResponses.InternalServerErrorResponse<LedgerTrend[]>(
         'An error occurred while getting the ledger trend',
+      );
+    }
+  }
+
+  // All-time summary for one shop's wallet - a shop-tied requester is
+  // always forced to their own shop, same as list()/getTrend().
+  async getSummary(
+    shopId: string,
+    requesterId: string,
+  ): Promise<ApiResponseDto<LedgerSummary>> {
+    try {
+      const ownShopId = await resolveRequesterShopId(
+        requesterId,
+        this.userRepository,
+      );
+      const scopedShopId = ownShopId ?? shopId;
+      if (!scopedShopId) {
+        return CommonResponses.BadRequestResponse<LedgerSummary>(
+          undefined,
+          'A shop is required',
+        );
+      }
+
+      const wallet = await this.walletService.getForShop(scopedShopId);
+      if (!wallet.data) {
+        return CommonResponses.NotFoundResponse<LedgerSummary>(
+          'Shop not found',
+        );
+      }
+
+      const { totalInflow, totalExpenses } =
+        await this.ledgerEntryRepository.getShopTotals(scopedShopId);
+
+      return CommonResponses.OkResponse<LedgerSummary>({
+        shopId: scopedShopId,
+        balance: wallet.data.balance,
+        totalInflow,
+        totalExpenses,
+      });
+    } catch (error) {
+      this.logger.error(
+        'an error occurred while getting the ledger summary',
+        shopId,
+        error,
+      );
+      return CommonResponses.InternalServerErrorResponse<LedgerSummary>(
+        'An error occurred while getting the ledger summary',
       );
     }
   }

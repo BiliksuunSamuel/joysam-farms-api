@@ -23,6 +23,10 @@ export class InventoryInfo {
 
   @Prop({ default: null })
   @ApiProperty()
+  categoryId: string;
+
+  @Prop({ default: null })
+  @ApiProperty()
   description: string;
 
   @Prop({ enum: Unit, default: null })

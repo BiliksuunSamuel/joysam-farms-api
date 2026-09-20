@@ -95,6 +95,11 @@ export const PERMISSION_FEATURES: PermissionFeature[] = [
         action: 'Create',
         description: 'Ring up a sale at checkout',
       },
+      {
+        key: 'payment-transaction.view',
+        action: 'View',
+        description: 'See Paystack payment transactions and their trend',
+      },
     ],
   },
   {
@@ -250,6 +255,23 @@ export const PERMISSION_FEATURES: PermissionFeature[] = [
         key: 'ledger.adjust',
         action: 'Adjust',
         description: 'Post a manual credit or debit to a shop wallet',
+      },
+    ],
+  },
+  {
+    feature: 'Reports',
+    description: 'Nightly per-shop and organisation-wide daily reports',
+    permissions: [
+      {
+        key: 'daily-report.view',
+        action: 'View',
+        description: 'See daily reports for a shop or the whole organisation',
+      },
+      {
+        key: 'daily-report.generate',
+        action: 'Generate',
+        description:
+          'Manually (re)generate a daily report for a shop or the whole organisation',
       },
     ],
   },

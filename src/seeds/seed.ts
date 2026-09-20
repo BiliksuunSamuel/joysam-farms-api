@@ -56,7 +56,7 @@ const USERS = [
   },
   {
     name: 'Ama Owusu',
-    email: 'shop.manager@joysamfarms.test',
+    email: 'shop.manager@joysamfarms.com',
     phone: '+233240001002',
     roleName: 'Shop Manager',
     // Shop-based staff are tied to one shop - the frontend locks shop
@@ -78,11 +78,13 @@ const USERS = [
       'expense.update-status',
       'sale.view',
       'sale.create',
+      'payment-transaction.view',
+      'daily-report.view',
     ],
   },
   {
     name: 'Kojo Mensah',
-    email: 'storekeeper@joysamfarms.test',
+    email: 'storekeeper@joysamfarms.com',
     phone: '+233240001003',
     roleName: 'Storekeeper',
     allPermissions: false,
@@ -109,7 +111,7 @@ const USERS = [
   },
   {
     name: 'Efua Danso',
-    email: 'accountant@joysamfarms.test',
+    email: 'accountant@joysamfarms.com',
     phone: '+233240001004',
     roleName: 'Accountant',
     shopName: 'East Legon Vet Pharmacy',
@@ -117,6 +119,7 @@ const USERS = [
     permissionKeys: [
       'shop.view',
       'sale.view',
+      'payment-transaction.view',
       'expense.view',
       'expense.update',
       'expense.update-status',
@@ -124,11 +127,13 @@ const USERS = [
       'ledger.view',
       'ledger.adjust',
       'audit.view',
+      'daily-report.view',
+      'daily-report.generate',
     ],
   },
   {
     name: 'Yaw Boateng',
-    email: 'cashier@joysamfarms.test',
+    email: 'cashier@joysamfarms.com',
     phone: '+233240001005',
     roleName: 'Cashier',
     shopName: 'Madina',
@@ -139,6 +144,7 @@ const USERS = [
       'inventory.view',
       'sale.view',
       'sale.create',
+      'payment-transaction.view',
       'stock.request.view',
       'stock.request.create',
     ],

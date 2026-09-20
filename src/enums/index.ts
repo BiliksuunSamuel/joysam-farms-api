@@ -102,17 +102,48 @@ export enum LedgerSource {
 
 export enum SalePaymentMethod {
   Cash = 'Cash',
-  // Card/mobile money via Paystack - not accepted yet (see SaleService.create).
+  // Manual entry (network + phone), recorded by the cashier - no gateway,
+  // settles instantly. UI label is deliberately NOT "Mobile Money" (see
+  // Digital below) to avoid colliding with the real gateway rail.
+  MobileMoney = 'MobileMoney',
+  // The real payment gateway (Paystack) - card and mobile money, via a
+  // redirect to Paystack's hosted checkout. UI label is "Mobile Money"
+  // since that's what users expect, even though it also accepts cards.
+  // Async: see SaleStatus.Pending and PaymentTransactionService.
   Digital = 'Digital',
   // Billed to a vendor's credit account - no cash changes hands at the
   // till, so the shop's own cash ledger isn't credited until the vendor
   // later pays (see SaleService.create and VendorService.recordPayment).
   Credit = 'Credit',
+  // Exactly two legs - one Cash + one MobileMoney - see Sale.payments.
+  // Credit is never split.
+  Split = 'Split',
 }
 
 export enum SaleStatus {
+  // Digital only - created (and stock deducted) the instant the cashier
+  // charges, but not yet paid. Every other payment method goes straight to
+  // Completed, since they're all settled synchronously at the till.
+  Pending = 'Pending',
   Completed = 'Completed',
   Voided = 'Voided',
+}
+
+export enum PaymentTransactionStatus {
+  Pending = 'Pending',
+  Success = 'Success',
+  Failed = 'Failed',
+  Abandoned = 'Abandoned',
+}
+
+// Time-based only (unlike SalesTrendGroupBy) - a payment-gateway trend is a
+// single-domain volume/success-rate metric, not a multi-dimension breakdown.
+export enum PaymentTransactionTrendGroupBy {
+  Hour = 'Hour',
+  Day = 'Day',
+  Week = 'Week',
+  Month = 'Month',
+  Year = 'Year',
 }
 
 export enum SalesTrendGroupBy {

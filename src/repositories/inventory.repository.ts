@@ -20,6 +20,12 @@ export class InventoryRepository {
     return await this.inventoryRepository.findOne({ id }).lean();
   }
 
+  //batch get by id, for enriching a list of records that each reference one
+  async getByIds(ids: string[]): Promise<Inventory[]> {
+    if (!ids.length) return [];
+    return await this.inventoryRepository.find({ id: { $in: ids } }).lean();
+  }
+
   //get by barcode, for a scan-to-lookup flow
   async getByBarcode(barcode: string): Promise<Inventory> {
     return await this.inventoryRepository.findOne({ barcode }).lean();

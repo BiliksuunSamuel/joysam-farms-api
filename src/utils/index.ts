@@ -83,6 +83,7 @@ export function toInventoryInfo(inventory): InventoryInfo {
   return {
     id: inventory.id,
     name: inventory.name,
+    categoryId: inventory.categoryId,
     description: inventory.description,
     unit: inventory.unit,
     price: inventory.price,
@@ -227,6 +228,14 @@ export function dayWeekMonthBucketKey(date: Date, groupBy: DayWeekMonthGroupBy):
     default:
       return date.toISOString().slice(0, 10);
   }
+}
+
+//UTC midnight of the calendar day `date` falls on - Ghana has no timezone
+//offset, so this is also local midnight (see DailyReportGenerationService).
+export function startOfUTCDay(date: Date): Date {
+  const d = new Date(date);
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
 }
 
 //ISO 8601 week-numbering year + week, e.g. "2026-W38" - matches Mongo's

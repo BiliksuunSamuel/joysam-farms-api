@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { SaleFilter } from 'src/dtos/sale/sale.filter.dto';
 import { SalesTrendFilter } from 'src/dtos/sale/sales.trend.filter.dto';
+import { PaymentSplit } from 'src/models/sale/payment-split.model';
 import { SaleItem } from 'src/models/sale/sale-item.model';
 import { ShopInfo } from 'src/models/shop/shop-info.model';
 import { UserInfo } from 'src/models/user/user-info.model';
@@ -22,10 +23,14 @@ export type CreateSaleRecord = {
   discount: number;
   total: number;
   paymentMethod: SalePaymentMethod;
+  status: SaleStatus;
   amountTendered?: number;
   changeGiven?: number;
   vendorId?: string;
   vendorInfoSnapshot?: VendorInfo;
+  momoNetwork?: string;
+  momoPhone?: string;
+  payments?: PaymentSplit[];
 };
 
 @Injectable()
@@ -37,6 +42,19 @@ export class SaleRepository {
   //get by id
   async getById(id: string): Promise<Sale> {
     return await this.saleRepository.findOne({ id }).lean();
+  }
+
+  //Digital sales still Pending after `before` - abandoned checkout
+  //sessions that never reached a terminal Paystack state (see
+  //PaymentTransactionSweepService).
+  async findStalePendingDigital(before: Date): Promise<Sale[]> {
+    return await this.saleRepository
+      .find({
+        status: SaleStatus.Pending,
+        paymentMethod: SalePaymentMethod.Digital,
+        createdAt: { $lt: before },
+      })
+      .lean();
   }
 
   //list, optionally scoped by shop/cashier/payment method/status
@@ -107,7 +125,9 @@ export class SaleRepository {
           as: 'inventoryDoc',
         },
       });
-      pipeline.push({ $unwind: { path: '$inventoryDoc', preserveNullAndEmptyArrays: true } });
+      pipeline.push({
+        $unwind: { path: '$inventoryDoc', preserveNullAndEmptyArrays: true },
+      });
     }
 
     const group: any = isCategory
@@ -126,7 +146,9 @@ export class SaleRepository {
           };
     switch (filter?.groupBy) {
       case SalesTrendGroupBy.Hour:
-        group._id = { $dateToString: { format: '%Y-%m-%dT%H:00', date: '$createdAt' } };
+        group._id = {
+          $dateToString: { format: '%Y-%m-%dT%H:00', date: '$createdAt' },
+        };
         break;
       case SalesTrendGroupBy.Week:
         group._id = { $dateToString: { format: '%G-W%V', date: '$createdAt' } };
@@ -153,7 +175,9 @@ export class SaleRepository {
         break;
       case SalesTrendGroupBy.Day:
       default:
-        group._id = { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } };
+        group._id = {
+          $dateToString: { format: '%Y-%m-%d', date: '$createdAt' },
+        };
         break;
     }
     pipeline.push({ $group: group });
@@ -169,13 +193,34 @@ export class SaleRepository {
     }));
   }
 
-  //record a completed sale - everything here is already resolved server-side
+  //record a sale - everything here is already resolved server-side. status
+  //is caller-supplied (Pending for Digital, Completed for every other
+  //method - see SaleService.create) rather than hardcoded, since Digital
+  //sales aren't settled yet at creation time.
   async create(record: CreateSaleRecord): Promise<Sale> {
     const res = await this.saleRepository.create({
       ...record,
       id: generateId(),
-      status: SaleStatus.Completed,
     });
     return await this.saleRepository.findById(res._id).lean();
+  }
+
+  // The concurrency guard for finalizing a Pending Digital sale - only one
+  // concurrent caller (webhook, poll, or the abandonment sweep) can ever
+  // match {id, status: from} and flip it, so exactly one of them proceeds
+  // to post the ledger credit / restore stock. Returns null if another
+  // caller already won (or the sale wasn't in `from` to begin with).
+  async finalize(
+    id: string,
+    from: SaleStatus,
+    to: SaleStatus,
+  ): Promise<Sale | null> {
+    return await this.saleRepository
+      .findOneAndUpdate(
+        { id, status: from },
+        { $set: { status: to } },
+        { new: true },
+      )
+      .lean();
   }
 }

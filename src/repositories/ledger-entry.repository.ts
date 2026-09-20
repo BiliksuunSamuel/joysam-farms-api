@@ -97,7 +97,9 @@ export class LedgerEntryRepository {
         break;
       case LedgerTrendGroupBy.Day:
       default:
-        group._id = { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } };
+        group._id = {
+          $dateToString: { format: '%Y-%m-%d', date: '$createdAt' },
+        };
         break;
     }
 
@@ -113,6 +115,95 @@ export class LedgerEntryRepository {
       value1: r.value1,
       value2: r.value2,
     }));
+  }
+
+  //all-time summary for a shop's ledger - totalInflow is every credit ever
+  //posted (any source); totalExpenses is Expense-sourced debits net of any
+  //reversal credit (see ExpenseService, which credits back an expense's
+  //amount if it's un-marked-Paid after having posted a debit for it) - so
+  //this reflects money that has actually left the wallet for expenses,
+  //not every Expense record regardless of whether it was ever paid.
+  async getShopTotals(
+    shopId: string,
+  ): Promise<{ totalInflow: number; totalExpenses: number }> {
+    const [totals] = await this.ledgerEntryRepository.aggregate([
+      { $match: { shopId } },
+      {
+        $group: {
+          _id: null,
+          totalInflow: {
+            $sum: {
+              $cond: [{ $eq: ['$type', LedgerEntryType.Credit] }, '$amount', 0],
+            },
+          },
+          expenseDebits: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ['$type', LedgerEntryType.Debit] },
+                    { $eq: ['$source', LedgerSource.Expense] },
+                  ],
+                },
+                '$amount',
+                0,
+              ],
+            },
+          },
+          expenseReversals: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ['$type', LedgerEntryType.Credit] },
+                    { $eq: ['$source', LedgerSource.Expense] },
+                  ],
+                },
+                '$amount',
+                0,
+              ],
+            },
+          },
+        },
+      },
+    ]);
+    return {
+      totalInflow: totals?.totalInflow ?? 0,
+      totalExpenses:
+        (totals?.expenseDebits ?? 0) - (totals?.expenseReversals ?? 0),
+    };
+  }
+
+  //a wallet's balance at a point in time, rather than "now" - shopId
+  //undefined sums every wallet's ledger together (organisation-wide), since
+  //LedgerEntry already carries shopId directly, so this is one query, not N
+  //per-wallet lookups. Used twice per Daily Report: asOfDate = start of day
+  //for the opening balance, end of day for the closing balance.
+  async getBalanceAsOf(
+    shopId: string | undefined,
+    asOfDate: Date,
+  ): Promise<number> {
+    const match: any = { createdAt: { $lte: asOfDate } };
+    if (shopId) match.shopId = shopId;
+
+    const [totals] = await this.ledgerEntryRepository.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: null,
+          balance: {
+            $sum: {
+              $cond: [
+                { $eq: ['$type', LedgerEntryType.Credit] },
+                '$amount',
+                { $multiply: ['$amount', -1] },
+              ],
+            },
+          },
+        },
+      },
+    ]);
+    return totals?.balance ?? 0;
   }
 
   //the wallet's current balance, computed by summing its ledger - never cached

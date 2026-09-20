@@ -10,6 +10,12 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.useGlobalPipes(new ValidationPipe());
   app.enableCors({ origin: '*' });
+
+  // Raw body for the Paystack webhook only, so its HMAC signature can be
+  // verified against the exact bytes Paystack signed - must be registered
+  // before the global JSON parser below, or the re-serialized body won't
+  // match byte-for-byte. Every other route is unaffected.
+  app.use('/api/payments/paystack/webhook', bodyParser.raw({ type: '*/*' }));
   app.use(bodyParser.json({ limit: '100mb' }));
   app.use(bodyParser.urlencoded({ limit: '100mb', extended: true }));
 

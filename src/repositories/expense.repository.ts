@@ -4,7 +4,7 @@ import { Model } from 'mongoose';
 import { ExpenseFilter } from 'src/dtos/expense/expense.filter.dto';
 import { ExpenseRequest } from 'src/dtos/expense/expense.request.dto';
 import { ExpenseTrendFilter } from 'src/dtos/expense/expense.trend.filter.dto';
-import { ExpenseStatus, ExpenseTrendGroupBy } from 'src/enums';
+import { ExpenseCategory, ExpenseStatus, ExpenseTrendGroupBy } from 'src/enums';
 import { ShopInfo } from 'src/models/shop/shop-info.model';
 import { Expense } from 'src/schemas/expense.schema';
 import { generateId, toPaginationInfo } from 'src/utils';
@@ -93,6 +93,38 @@ export class ExpenseRepository {
       label: r._id,
       value1: r.value1,
       value2: r.value2,
+    }));
+  }
+
+  //category totals for a fixed date range - the counterpart to getTrend's
+  //Day/Week/Month bucketing, needed because no category groupBy exists
+  //there. shopId undefined = organisation-wide (naturally includes
+  //shopId:null company-wide expenses alongside every shop's, since neither
+  //is filtered out).
+  async getCategoryTotals(
+    shopId: string | undefined,
+    startDate: Date,
+    endDate: Date,
+    status: ExpenseStatus,
+  ): Promise<{ category: ExpenseCategory; amount: number; count: number }[]> {
+    const match: any = { status, date: { $gte: startDate, $lt: endDate } };
+    if (shopId) match.shopId = shopId;
+
+    const results = await this.expenseRepository.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: '$category',
+          amount: { $sum: '$amount' },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    return results.map((r) => ({
+      category: r._id,
+      amount: r.amount,
+      count: r.count,
     }));
   }
 

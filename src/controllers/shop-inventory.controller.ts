@@ -14,6 +14,7 @@ import { ApiParam, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 import { UserJwtDetails } from 'src/dtos/auth/user.jwt.details';
 import { ShopInventoryBreakdownFilter } from 'src/dtos/shop-inventory/shop-inventory.breakdown.filter.dto';
+import { ShopInventoryCategoryCountsFilter } from 'src/dtos/shop-inventory/shop-inventory.category-counts.filter.dto';
 import { ShopInventoryFilter } from 'src/dtos/shop-inventory/shop-inventory.filter.dto';
 import { ShopInventoryQuantityRequest } from 'src/dtos/shop-inventory/shop-inventory.quantity.request.dto';
 import { ShopInventoryRequest } from 'src/dtos/shop-inventory/shop-inventory.request.dto';
@@ -49,6 +50,17 @@ export class ShopInventoryController {
     @Res() response: Response,
   ) {
     const res = await this.shopInventoryService.getBreakdown(filter, user.id);
+    response.status(res.code).send(res);
+  }
+
+  @Get('category-counts')
+  @AuthPermissions('shop.inventory.view')
+  async getCategoryCounts(
+    @Query() filter: ShopInventoryCategoryCountsFilter,
+    @AuthUser() user: UserJwtDetails,
+    @Res() response: Response,
+  ) {
+    const res = await this.shopInventoryService.getCategoryCounts(filter, user.id);
     response.status(res.code).send(res);
   }
 

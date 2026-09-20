@@ -5,8 +5,14 @@ import { SaleFilter } from 'src/dtos/sale/sale.filter.dto';
 import { SaleRequest } from 'src/dtos/sale/sale.request.dto';
 import { SalesTrend } from 'src/dtos/sale/sales.trend.dto';
 import { SalesTrendFilter } from 'src/dtos/sale/sales.trend.filter.dto';
-import { LedgerSource, SalePaymentMethod, SalesTrendGroupBy } from 'src/enums';
+import {
+  LedgerSource,
+  SalePaymentMethod,
+  SaleStatus,
+  SalesTrendGroupBy,
+} from 'src/enums';
 import { CommonResponses } from 'src/helper/common.responses.helper';
+import { PaymentSplit } from 'src/models/sale/payment-split.model';
 import { SaleItem } from 'src/models/sale/sale-item.model';
 import { CategoryRepository } from 'src/repositories/category.repository';
 import { CounterRepository } from 'src/repositories/counter.repository';
@@ -20,6 +26,7 @@ import { Sale } from 'src/schemas/sale.schema';
 import { Shop } from 'src/schemas/shop.schema';
 import { Vendor } from 'src/schemas/vendor.schema';
 import { LedgerEntryService } from 'src/services/ledger-entry.service';
+import { PaymentTransactionService } from 'src/services/payment-transaction.service';
 import { VendorService } from 'src/services/vendor.service';
 import {
   resolveRequesterShopId,
@@ -44,28 +51,38 @@ export class SaleService {
     private readonly counterRepository: CounterRepository,
     private readonly ledgerEntryService: LedgerEntryService,
     private readonly vendorService: VendorService,
+    private readonly paymentTransactionService: PaymentTransactionService,
   ) {}
 
   //get by id
-  async getById(id: string, requesterId: string): Promise<ApiResponseDto<Sale>> {
+  async getById(
+    id: string,
+    requesterId: string,
+  ): Promise<ApiResponseDto<Sale>> {
     try {
       const sale = await this.saleRepository.getById(id);
       if (!sale) {
         return CommonResponses.NotFoundResponse<Sale>('Sale not found');
       }
-      const shopId = await resolveRequesterShopId(requesterId, this.userRepository);
+      const shopId = await resolveRequesterShopId(
+        requesterId,
+        this.userRepository,
+      );
       if (shopId && sale.shopId !== shopId) {
         return CommonResponses.NotFoundResponse<Sale>('Sale not found');
       }
       return CommonResponses.OkResponse<Sale>(sale);
     } catch (error) {
-      this.logger.error('an error occurred while getting sale by id', id, error);
+      this.logger.error(
+        'an error occurred while getting sale by id',
+        id,
+        error,
+      );
       return CommonResponses.InternalServerErrorResponse<Sale>(
         'An error occurred while getting sale by id',
       );
     }
   }
-
 
   // Revenue (value1) and transaction count (value2), grouped by whichever
   // dimension the caller asks for - Hour/Day/Week/Month/Year bucket time
@@ -82,7 +99,10 @@ export class SaleService {
     try {
       const groupBy = filter?.groupBy ?? SalesTrendGroupBy.Day;
       const { start, end } = this.resolveTrendRange(filter, groupBy);
-      const shopId = await resolveRequesterShopId(requesterId, this.userRepository);
+      const shopId = await resolveRequesterShopId(
+        requesterId,
+        this.userRepository,
+      );
 
       const rows = await this.saleRepository.getTrend({
         ...filter,
@@ -92,11 +112,18 @@ export class SaleService {
         endDate: end,
       });
 
-      if (groupBy === SalesTrendGroupBy.Shop || groupBy === SalesTrendGroupBy.Cashier) {
+      if (
+        groupBy === SalesTrendGroupBy.Shop ||
+        groupBy === SalesTrendGroupBy.Cashier
+      ) {
         const trend: SalesTrend[] = rows
           .slice()
           .sort((a, b) => b.value1 - a.value1)
-          .map((row) => ({ label: row.label, value1: row.value1, value2: row.value2 }));
+          .map((row) => ({
+            label: row.label,
+            value1: row.value1,
+            value2: row.value2,
+          }));
         return CommonResponses.OkResponse<SalesTrend[]>(trend);
       }
 
@@ -129,14 +156,22 @@ export class SaleService {
       for (let i = 0; i < 5000; i++) {
         const key = this.trendBucketKey(cursor, groupBy);
         const row = byKey.get(key);
-        trend.push({ label: key, value1: row?.value1 ?? 0, value2: row?.value2 ?? 0 });
+        trend.push({
+          label: key,
+          value1: row?.value1 ?? 0,
+          value2: row?.value2 ?? 0,
+        });
         if (key === lastKey) break;
         cursor = this.advanceTrendBucket(cursor, groupBy);
       }
 
       return CommonResponses.OkResponse<SalesTrend[]>(trend);
     } catch (error) {
-      this.logger.error('an error occurred while getting sales trend', filter, error);
+      this.logger.error(
+        'an error occurred while getting sales trend',
+        filter,
+        error,
+      );
       return CommonResponses.InternalServerErrorResponse<SalesTrend[]>(
         'An error occurred while getting sales trend',
       );
@@ -252,7 +287,9 @@ export class SaleService {
   //first/last days of a calendar year belong to a week in the adjacent
   //ISO year.
   private isoWeekKey(date: Date): string {
-    const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    const d = new Date(
+      Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+    );
     const dayNum = (d.getUTCDay() + 6) % 7; // Monday = 0
     d.setUTCDate(d.getUTCDate() - dayNum + 3); // Thursday of this ISO week
     const isoYear = d.getUTCFullYear();
@@ -260,7 +297,8 @@ export class SaleService {
     const jan4DayNum = (jan4.getUTCDay() + 6) % 7;
     const week1Monday = new Date(jan4);
     week1Monday.setUTCDate(jan4.getUTCDate() - jan4DayNum);
-    const weekNum = Math.round((d.getTime() - week1Monday.getTime()) / (7 * 86_400_000)) + 1;
+    const weekNum =
+      Math.round((d.getTime() - week1Monday.getTime()) / (7 * 86_400_000)) + 1;
     return `${isoYear}-W${String(weekNum).padStart(2, '0')}`;
   }
 
@@ -271,7 +309,10 @@ export class SaleService {
   ): Promise<ApiResponseDto<PagedResults<Sale>>> {
     try {
       const { page, pageSize } = toPaginationInfo(filter);
-      const shopId = await resolveRequesterShopId(requesterId, this.userRepository);
+      const shopId = await resolveRequesterShopId(
+        requesterId,
+        this.userRepository,
+      );
       const scoped = shopId ? { ...filter, shopId } : filter;
       const { results, totalCount } = await this.saleRepository.list(scoped);
       return CommonResponses.OkResponse<PagedResults<Sale>>({
@@ -300,13 +341,6 @@ export class SaleService {
       const shop = await this.shopRepository.getById(request.shopId);
       if (!shop) {
         return CommonResponses.NotFoundResponse<Sale>('Shop not found');
-      }
-
-      if (request.paymentMethod === SalePaymentMethod.Digital) {
-        return CommonResponses.BadRequestResponse<Sale>(
-          undefined,
-          "Digital payments aren't available yet - charge this sale as cash for now",
-        );
       }
 
       const ids = request.items.map((i) => i.inventoryId);
@@ -349,36 +383,133 @@ export class SaleService {
         });
       }
 
-      const subtotal = Math.round(items.reduce((sum, i) => sum + i.lineTotal, 0) * 100) / 100;
+      const subtotal =
+        Math.round(items.reduce((sum, i) => sum + i.lineTotal, 0) * 100) / 100;
       const discount = Math.min(Math.max(request.discount ?? 0, 0), subtotal);
       const total = Math.round((subtotal - discount) * 100) / 100;
 
       const isCredit = request.paymentMethod === SalePaymentMethod.Credit;
+      const isDigital = request.paymentMethod === SalePaymentMethod.Digital;
       let amountTendered: number | undefined;
       let changeGiven: number | undefined;
       let vendor: Vendor | undefined;
+      let momoNetwork: string | undefined;
+      let momoPhone: string | undefined;
+      let payments: PaymentSplit[] | undefined;
 
-      if (isCredit) {
-        if (!request.vendorId) {
-          return CommonResponses.BadRequestResponse<Sale>(
-            undefined,
-            'A vendor is required for a credit sale',
+      switch (request.paymentMethod) {
+        case SalePaymentMethod.Credit: {
+          if (!request.vendorId) {
+            return CommonResponses.BadRequestResponse<Sale>(
+              undefined,
+              'A vendor is required for a credit sale',
+            );
+          }
+          const check = await this.vendorService.assertCanSellOnCredit(
+            request.vendorId,
           );
+          if (check.status === 'error') {
+            return CommonResponses.BadRequestResponse<Sale>(
+              undefined,
+              check.message,
+            );
+          }
+          vendor = check.vendor;
+          break;
         }
-        const check = await this.vendorService.assertCanSellOnCredit(request.vendorId);
-        if (check.status === 'error') {
-          return CommonResponses.BadRequestResponse<Sale>(undefined, check.message);
+        case SalePaymentMethod.Cash: {
+          if (
+            request.amountTendered == null ||
+            request.amountTendered < total
+          ) {
+            return CommonResponses.BadRequestResponse<Sale>(
+              undefined,
+              'The amount tendered is less than the total due',
+            );
+          }
+          amountTendered = request.amountTendered;
+          changeGiven = Math.round((amountTendered - total) * 100) / 100;
+          break;
         }
-        vendor = check.vendor;
-      } else {
-        if (request.amountTendered == null || request.amountTendered < total) {
-          return CommonResponses.BadRequestResponse<Sale>(
-            undefined,
-            'The amount tendered is less than the total due',
+        case SalePaymentMethod.MobileMoney: {
+          if (!request.momoNetwork || !request.momoPhone) {
+            return CommonResponses.BadRequestResponse<Sale>(
+              undefined,
+              'A mobile money network and phone number are required',
+            );
+          }
+          momoNetwork = request.momoNetwork;
+          momoPhone = request.momoPhone;
+          break;
+        }
+        case SalePaymentMethod.Split: {
+          const legs = request.payments ?? [];
+          if (legs.length !== 2) {
+            return CommonResponses.BadRequestResponse<Sale>(
+              undefined,
+              'A split sale needs exactly one cash leg and one mobile money leg',
+            );
+          }
+          const cashLeg = legs.find((l) => l.method === SalePaymentMethod.Cash);
+          const momoLeg = legs.find(
+            (l) => l.method === SalePaymentMethod.MobileMoney,
           );
+          if (!cashLeg || !momoLeg) {
+            return CommonResponses.BadRequestResponse<Sale>(
+              undefined,
+              'A split sale can only combine a cash leg and a mobile money leg',
+            );
+          }
+          const legTotal =
+            Math.round((cashLeg.amount + momoLeg.amount) * 100) / 100;
+          if (legTotal !== total) {
+            return CommonResponses.BadRequestResponse<Sale>(
+              undefined,
+              `The split amounts don't add up to the total due`,
+            );
+          }
+          if (
+            cashLeg.amountTendered == null ||
+            cashLeg.amountTendered < cashLeg.amount
+          ) {
+            return CommonResponses.BadRequestResponse<Sale>(
+              undefined,
+              'The cash tendered is less than the cash portion of this split',
+            );
+          }
+          if (!momoLeg.momoNetwork || !momoLeg.momoPhone) {
+            return CommonResponses.BadRequestResponse<Sale>(
+              undefined,
+              'A mobile money network and phone number are required for this split',
+            );
+          }
+          payments = [
+            {
+              method: SalePaymentMethod.Cash,
+              amount: cashLeg.amount,
+              amountTendered: cashLeg.amountTendered,
+              changeGiven:
+                Math.round((cashLeg.amountTendered - cashLeg.amount) * 100) /
+                100,
+              momoNetwork: null,
+              momoPhone: null,
+            },
+            {
+              method: SalePaymentMethod.MobileMoney,
+              amount: momoLeg.amount,
+              amountTendered: null,
+              changeGiven: null,
+              momoNetwork: momoLeg.momoNetwork,
+              momoPhone: momoLeg.momoPhone,
+            },
+          ];
+          break;
         }
-        amountTendered = request.amountTendered;
-        changeGiven = Math.round((amountTendered - total) * 100) / 100;
+        case SalePaymentMethod.Digital: {
+          // Nothing to validate synchronously - payment happens after this
+          // sale is created (see PaymentTransactionService), not now.
+          break;
+        }
       }
 
       const cashier = await this.userRepository.getById(cashierId);
@@ -411,10 +542,14 @@ export class SaleService {
         discount,
         total,
         paymentMethod: request.paymentMethod,
+        status: isDigital ? SaleStatus.Pending : SaleStatus.Completed,
         amountTendered,
         changeGiven,
         vendorId: vendor?.id,
         vendorInfoSnapshot: vendor ? toVendorInfo(vendor) : undefined,
+        momoNetwork,
+        momoPhone,
+        payments,
       });
 
       if (isCredit && vendor) {
@@ -430,17 +565,42 @@ export class SaleService {
           request.vendorNote,
           request.vendorDueDate ? new Date(request.vendorDueDate) : undefined,
         );
+      } else if (isDigital) {
+        // No cash changed hands yet either - the sale sits Pending (stock
+        // already reserved above) until Paystack confirms, at which point
+        // PaymentTransactionService posts this same ledger credit itself.
+        // See its initiateForSale, which also releases the reservation
+        // immediately (void + restore stock) if Paystack can't be reached.
+        const initiated = await this.paymentTransactionService.initiateForSale(
+          sale,
+          cashier.email,
+        );
+        if (!initiated) {
+          return CommonResponses.BadRequestResponse<Sale>(
+            undefined,
+            'Could not start the mobile money payment - please try again',
+          );
+        }
       } else {
-        await this.ledgerEntryService.credit(request.shopId, total, LedgerSource.Sale, {
-          referenceId: sale.id,
-          description: `Sale ${receiptNo}`,
-          recordedById: cashierId,
-        });
+        await this.ledgerEntryService.credit(
+          request.shopId,
+          total,
+          LedgerSource.Sale,
+          {
+            referenceId: sale.id,
+            description: `Sale ${receiptNo}`,
+            recordedById: cashierId,
+          },
+        );
       }
 
       return CommonResponses.CreatedResponse<Sale>(sale);
     } catch (error) {
-      this.logger.error('an error occurred while creating sale', request, error);
+      this.logger.error(
+        'an error occurred while creating sale',
+        request,
+        error,
+      );
       return CommonResponses.InternalServerErrorResponse<Sale>(
         'An error occurred while creating sale',
       );
@@ -452,7 +612,10 @@ export class SaleService {
   private async generateReceiptNo(shop: Shop): Promise<string> {
     const prefix =
       shop.receiptPrefix?.toUpperCase() ||
-      shop.name.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() ||
+      shop.name
+        .replace(/[^A-Za-z]/g, '')
+        .slice(0, 3)
+        .toUpperCase() ||
       'SHP';
     const seq = await this.counterRepository.next(`sale:${shop.id}`);
     return `${prefix}-${String(seq).padStart(6, '0')}`;

@@ -13,6 +13,8 @@ import constants from 'src/constants';
 import { AuthMiddleware } from 'src/middlewares/auth.middleware';
 import { AuditLogInterceptor } from 'src/providers/audit-log.interceptor';
 import { PermissionsGuard } from 'src/providers/permissions.guard';
+import { HttpModule } from 'node_modules/@nestjs/axios/dist/http.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
@@ -28,6 +30,10 @@ import { PermissionsGuard } from 'src/providers/permissions.guard';
       secret: constants().secret,
       signOptions: { expiresIn: '8hrs' },
     }),
+    HttpModule.register({
+      timeout: 5000,
+    }),
+    ScheduleModule.forRoot(),
   ],
   controllers: [...controllers],
   providers: [
@@ -48,6 +54,7 @@ export class AppModule {
       .exclude(
         { path: 'api/authentication/sign-in', method: RequestMethod.POST },
         { path: 'api/authentication/sign-up', method: RequestMethod.POST },
+        { path: 'api/payments/paystack/webhook', method: RequestMethod.POST },
       )
       .forRoutes({
         path: '*',

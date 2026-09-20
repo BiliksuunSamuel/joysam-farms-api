@@ -52,6 +52,18 @@ export class LedgerEntryController {
     response.status(res.code).send(res);
   }
 
+  // Registered before ':id' - otherwise "summary" would be captured as an id.
+  @Get('summary')
+  @AuthPermissions('ledger.view')
+  async getSummary(
+    @Query('shopId') shopId: string,
+    @AuthUser() user: UserJwtDetails,
+    @Res() response: Response,
+  ) {
+    const res = await this.ledgerEntryService.getSummary(shopId, user.id);
+    response.status(res.code).send(res);
+  }
+
   @Get(':id')
   @AuthPermissions('ledger.view')
   @ApiParam({ name: 'id', type: String })

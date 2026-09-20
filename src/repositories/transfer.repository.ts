@@ -78,10 +78,34 @@ export class TransferRepository {
     return await this.transferRepository
       .findOneAndUpdate(
         { id },
-        { $set: { status: TransferStatus.Completed, approvedById } },
+        {
+          $set: {
+            status: TransferStatus.Completed,
+            approvedById,
+            completedAt: new Date(),
+          },
+        },
         { new: true },
       )
       .lean();
+  }
+
+  //how many transfers completed in a fixed date range - used by the Daily
+  //Report's inventory movement section. shopId scoping mirrors list()'s own
+  //forcedShopId: either side of the transfer counts for that shop.
+  async countCompleted(
+    shopId: string | undefined,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<number> {
+    const query: any = {
+      status: TransferStatus.Completed,
+      completedAt: { $gte: startDate, $lt: endDate },
+    };
+    if (shopId) {
+      query.$or = [{ fromShopId: shopId }, { toShopId: shopId }];
+    }
+    return await this.transferRepository.countDocuments(query);
   }
 
   //cancel a pending transfer (nothing to undo - it never moved anything)

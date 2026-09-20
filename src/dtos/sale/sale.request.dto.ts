@@ -13,6 +13,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { SalePaymentMethod } from 'src/enums';
+import { PaymentSplitRequest } from './payment-split.request.dto';
 import { SaleItemRequest } from './sale.item.request.dto';
 
 export class SaleRequest {
@@ -65,4 +66,24 @@ export class SaleRequest {
   @IsOptional()
   @IsDateString()
   vendorDueDate?: string;
+
+  // Required when paymentMethod is MobileMoney - who the payment came from.
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  momoNetwork?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  momoPhone?: string;
+
+  // Required when paymentMethod is Split - exactly one Cash leg and one
+  // MobileMoney leg, summing to the sale total.
+  @ApiProperty({ required: false, type: [PaymentSplitRequest] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PaymentSplitRequest)
+  payments?: PaymentSplitRequest[];
 }

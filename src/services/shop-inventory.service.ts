@@ -3,11 +3,14 @@ import { ApiResponseDto } from 'src/dtos/common/api.response.dto';
 import { PagedResults } from 'src/dtos/common/paged.results.dto';
 import { ShopInventoryBreakdown } from 'src/dtos/shop-inventory/shop-inventory.breakdown.dto';
 import { ShopInventoryBreakdownFilter } from 'src/dtos/shop-inventory/shop-inventory.breakdown.filter.dto';
+import { ShopInventoryCategoryCount } from 'src/dtos/shop-inventory/shop-inventory.category-count.dto';
+import { ShopInventoryCategoryCountsFilter } from 'src/dtos/shop-inventory/shop-inventory.category-counts.filter.dto';
 import { ShopInventoryFilter } from 'src/dtos/shop-inventory/shop-inventory.filter.dto';
 import { ShopInventoryQuantityRequest } from 'src/dtos/shop-inventory/shop-inventory.quantity.request.dto';
 import { ShopInventoryRequest } from 'src/dtos/shop-inventory/shop-inventory.request.dto';
 import { ShopInventoryStatusRequest } from 'src/dtos/shop-inventory/shop-inventory.status.request.dto';
 import { CommonResponses } from 'src/helper/common.responses.helper';
+import { CategoryRepository } from 'src/repositories/category.repository';
 import { InventoryRepository } from 'src/repositories/inventory.repository';
 import { SettingsRepository } from 'src/repositories/settings.repository';
 import { ShopInventoryRepository } from 'src/repositories/shop-inventory.repository';
@@ -23,6 +26,7 @@ export class ShopInventoryService {
     private readonly shopInventoryRepository: ShopInventoryRepository,
     private readonly shopRepository: ShopRepository,
     private readonly inventoryRepository: InventoryRepository,
+    private readonly categoryRepository: CategoryRepository,
     private readonly settingsRepository: SettingsRepository,
     private readonly userRepository: UserRepository,
   ) {}
@@ -91,6 +95,41 @@ export class ShopInventoryService {
     }
   }
 
+  // count of active items at a shop, grouped by category - drives the
+  // category filter chips on checkout, so a shop-scoped requester (e.g. a
+  // cashier without inventory.view) still gets accurate counts, computed
+  // here rather than on the client
+  async getCategoryCounts(
+    filter: ShopInventoryCategoryCountsFilter,
+    requesterId: string,
+  ): Promise<ApiResponseDto<ShopInventoryCategoryCount[]>> {
+    try {
+      const shopId = await resolveRequesterShopId(requesterId, this.userRepository);
+      const rows = await this.shopInventoryRepository.getActiveCategoryCounts(
+        shopId || filter.shopId,
+      );
+      const categories = await this.categoryRepository.getByIds(rows.map((r) => r.categoryId));
+      const nameById = new Map(categories.map((c) => [c.id, c.name]));
+      const counts: ShopInventoryCategoryCount[] = rows
+        .map((row) => ({
+          categoryId: row.categoryId,
+          categoryName: nameById.get(row.categoryId) ?? '',
+          count: row.count,
+        }))
+        .filter((row) => row.categoryName);
+      return CommonResponses.OkResponse<ShopInventoryCategoryCount[]>(counts);
+    } catch (error) {
+      this.logger.error(
+        'an error occurred while getting shop inventory category counts',
+        filter,
+        error,
+      );
+      return CommonResponses.InternalServerErrorResponse<ShopInventoryCategoryCount[]>(
+        'An error occurred while getting shop inventory category counts',
+      );
+    }
+  }
+
   //list, optionally scoped to a shop and/or an inventory item - a
   //shop-tied requester is always forced to their own shop
   async list(
@@ -103,8 +142,31 @@ export class ShopInventoryService {
       const scoped = shopId ? { ...filter, shopId } : filter;
       const { results, totalCount } =
         await this.shopInventoryRepository.list(scoped);
+
+      // The stored snapshot may predate categoryId being captured, and the
+      // requester (e.g. a shop-scoped cashier) may lack `inventory.view` to
+      // resolve it themselves - so resolve it live here instead, which needs
+      // no permission of its own since it's an internal lookup.
+      const inventoryIds = [...new Set(results.map((r) => r.inventoryId))];
+      const inventoryItems = await this.inventoryRepository.getByIds(inventoryIds);
+      const categoryIdByInventoryId = new Map(
+        inventoryItems.map((i) => [i.id, i.categoryId]),
+      );
+      const enriched = results.map((r) => ({
+        ...r,
+        inventoryInfoSnapshot: r.inventoryInfoSnapshot
+          ? {
+              ...r.inventoryInfoSnapshot,
+              categoryId:
+                categoryIdByInventoryId.get(r.inventoryId) ??
+                r.inventoryInfoSnapshot.categoryId ??
+                null,
+            }
+          : r.inventoryInfoSnapshot,
+      }));
+
       return CommonResponses.OkResponse<PagedResults<ShopInventory>>({
-        results,
+        results: enriched,
         totalCount,
         totalPages: Math.ceil(totalCount / pageSize),
         page,

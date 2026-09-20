@@ -56,6 +56,37 @@ export class ShopInventoryRepository {
     }));
   }
 
+  //count of active items assigned to a shop, grouped by categoryId - joins
+  //live to Inventory rather than trusting inventoryInfoSnapshot.categoryId,
+  //since older snapshots may predate that field being captured
+  async getActiveCategoryCounts(
+    shopId: string,
+  ): Promise<{ categoryId: string; count: number }[]> {
+    const results = await this.shopInventoryRepository.aggregate([
+      { $match: { shopId, status: ShopInventoryStatus.Active } },
+      {
+        $lookup: {
+          from: 'inventories',
+          localField: 'inventoryId',
+          foreignField: 'id',
+          as: 'inventory',
+        },
+      },
+      { $unwind: { path: '$inventory', preserveNullAndEmptyArrays: true } },
+      {
+        $addFields: {
+          categoryId: {
+            $ifNull: ['$inventory.categoryId', '$inventoryInfoSnapshot.categoryId'],
+          },
+        },
+      },
+      { $match: { categoryId: { $nin: [null, ''] } } },
+      { $group: { _id: '$categoryId', count: { $sum: 1 } } },
+    ]);
+
+    return results.map((r) => ({ categoryId: r._id, count: r.count }));
+  }
+
   //list, optionally scoped to a shop and/or an inventory item
   async list(
     filter: ShopInventoryFilter,
