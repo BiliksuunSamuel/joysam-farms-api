@@ -62,4 +62,12 @@ export class DailyReport extends BaseSchema {
   @Prop({ type: InventoryMovementSchema, required: true })
   @ApiProperty({ type: InventoryMovement })
   inventoryMovement: InventoryMovement;
+
+  // A plain-English rollup of the sections above, generated deterministically
+  // from this same report's own numbers (plus yesterday's, for comparison) -
+  // see DailyReportGenerationService.buildNarrative. Paragraphs are joined
+  // by blank lines ("\n\n"), never re-derived on read.
+  @Prop({ required: true })
+  @ApiProperty()
+  narrative: string;
 }

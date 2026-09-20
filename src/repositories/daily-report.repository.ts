@@ -12,6 +12,7 @@ export type DailyReportSections = {
   payments: DailyReport['payments'];
   expenses: DailyReport['expenses'];
   inventoryMovement: DailyReport['inventoryMovement'];
+  narrative: DailyReport['narrative'];
 };
 
 @Injectable()
