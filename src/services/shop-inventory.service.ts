@@ -8,16 +8,28 @@ import { ShopInventoryCategoryCountsFilter } from 'src/dtos/shop-inventory/shop-
 import { ShopInventoryFilter } from 'src/dtos/shop-inventory/shop-inventory.filter.dto';
 import { ShopInventoryQuantityRequest } from 'src/dtos/shop-inventory/shop-inventory.quantity.request.dto';
 import { ShopInventoryRequest } from 'src/dtos/shop-inventory/shop-inventory.request.dto';
+import { ShopInventoryResponse } from 'src/dtos/shop-inventory/shop-inventory.response.dto';
 import { ShopInventoryStatusRequest } from 'src/dtos/shop-inventory/shop-inventory.status.request.dto';
+import { LowStockThresholdMode } from 'src/enums';
 import { CommonResponses } from 'src/helper/common.responses.helper';
 import { CategoryRepository } from 'src/repositories/category.repository';
 import { InventoryRepository } from 'src/repositories/inventory.repository';
+import { SaleRepository } from 'src/repositories/sale.repository';
 import { SettingsRepository } from 'src/repositories/settings.repository';
 import { ShopInventoryRepository } from 'src/repositories/shop-inventory.repository';
 import { ShopRepository } from 'src/repositories/shop.repository';
 import { UserRepository } from 'src/repositories/user.repository';
+import { Settings } from 'src/schemas/settings.schema';
 import { ShopInventory } from 'src/schemas/shop-inventory.schema';
-import { resolveRequesterShopId, toInventoryInfo, toPaginationInfo } from 'src/utils';
+import {
+  InventoryUtilsService,
+  VELOCITY_WINDOW_DAYS,
+} from 'src/services/inventory-utils.service';
+import {
+  resolveRequesterShopId,
+  toInventoryInfo,
+  toPaginationInfo,
+} from 'src/utils';
 
 @Injectable()
 export class ShopInventoryService {
@@ -28,32 +40,112 @@ export class ShopInventoryService {
     private readonly inventoryRepository: InventoryRepository,
     private readonly categoryRepository: CategoryRepository,
     private readonly settingsRepository: SettingsRepository,
+    private readonly saleRepository: SaleRepository,
+    private readonly inventoryUtilsService: InventoryUtilsService,
     private readonly userRepository: UserRepository,
   ) {}
 
+  // Reorder level per inventoryId (ShopInventory carries no threshold of
+  // its own, so FixedQuantity mode resolves it live from the warehouse
+  // item), plus - only in DaysOfCover mode - each item's daily sell-through
+  // rate at its own shop, keyed `${shopId}:${inventoryId}` since a list can
+  // span every shop at once. Accepts already-fetched Inventory items where
+  // the caller has them (list() already joins to Inventory for categoryId),
+  // so this never fetches the same items twice.
+  private async getStockHealthInputs(
+    rows: { shopId: string; inventoryId: string }[],
+    inventoryItems?: { id: string; reorderLevel: number }[],
+  ): Promise<{
+    settings?: Settings;
+    reorderLevelByInventoryId: Map<string, number>;
+    velocityByKey: Map<string, number>;
+  }> {
+    const inventoryIds = [...new Set(rows.map((r) => r.inventoryId))];
+    const [settings, items] = await Promise.all([
+      this.settingsRepository.get(),
+      inventoryItems
+        ? Promise.resolve(inventoryItems)
+        : this.inventoryRepository.getByIds(inventoryIds),
+    ]);
+    const reorderLevelByInventoryId = new Map(
+      items.map((i) => [i.id, i.reorderLevel]),
+    );
+
+    if (settings?.lowStockThresholdMode !== LowStockThresholdMode.DaysOfCover) {
+      return { settings, reorderLevelByInventoryId, velocityByKey: new Map() };
+    }
+
+    const shopIds = [...new Set(rows.map((r) => r.shopId))];
+    const since = new Date(
+      Date.now() - VELOCITY_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    );
+    const unitsSold =
+      await this.saleRepository.getUnitsSoldByShopAndInventoryId(since, {
+        shopId: shopIds.length === 1 ? shopIds[0] : undefined,
+        inventoryIds,
+      });
+    const velocityByKey = new Map(
+      [...unitsSold].map(([key, units]) => [key, units / VELOCITY_WINDOW_DAYS]),
+    );
+    return { settings, reorderLevelByInventoryId, velocityByKey };
+  }
+
+  private toShopInventoryResponse(
+    row: ShopInventory,
+    inputs: {
+      settings?: Settings;
+      reorderLevelByInventoryId: Map<string, number>;
+      velocityByKey: Map<string, number>;
+    },
+  ): ShopInventoryResponse {
+    const { stockHealth, daysOfCover } =
+      this.inventoryUtilsService.computeStockHealth({
+        quantity: row.quantity,
+        reorderLevel:
+          inputs.reorderLevelByInventoryId.get(row.inventoryId) ?? 0,
+        mode:
+          inputs.settings?.lowStockThresholdMode ??
+          LowStockThresholdMode.FixedQuantity,
+        thresholdQuantity: inputs.settings?.lowStockThresholdQuantity ?? 10,
+        thresholdDays: inputs.settings?.lowStockThresholdDays ?? 3,
+        dailyVelocity:
+          inputs.velocityByKey.get(`${row.shopId}:${row.inventoryId}`) ?? null,
+      });
+    return { ...row, stockHealth, daysOfCover };
+  }
+
   //get by id
-  async getById(id: string, requesterId: string): Promise<ApiResponseDto<ShopInventory>> {
+  async getById(
+    id: string,
+    requesterId: string,
+  ): Promise<ApiResponseDto<ShopInventoryResponse>> {
     try {
       const shopInventory = await this.shopInventoryRepository.getById(id);
       if (!shopInventory) {
-        return CommonResponses.NotFoundResponse<ShopInventory>(
+        return CommonResponses.NotFoundResponse<ShopInventoryResponse>(
           'Shop inventory assignment not found',
         );
       }
-      const shopId = await resolveRequesterShopId(requesterId, this.userRepository);
+      const shopId = await resolveRequesterShopId(
+        requesterId,
+        this.userRepository,
+      );
       if (shopId && shopInventory.shopId !== shopId) {
-        return CommonResponses.NotFoundResponse<ShopInventory>(
+        return CommonResponses.NotFoundResponse<ShopInventoryResponse>(
           'Shop inventory assignment not found',
         );
       }
-      return CommonResponses.OkResponse<ShopInventory>(shopInventory);
+      const inputs = await this.getStockHealthInputs([shopInventory]);
+      return CommonResponses.OkResponse<ShopInventoryResponse>(
+        this.toShopInventoryResponse(shopInventory, inputs),
+      );
     } catch (error) {
       this.logger.error(
         'an error occurred while getting shop inventory by id',
         id,
         error,
       );
-      return CommonResponses.InternalServerErrorResponse<ShopInventory>(
+      return CommonResponses.InternalServerErrorResponse<ShopInventoryResponse>(
         'An error occurred while getting shop inventory by id',
       );
     }
@@ -71,8 +163,12 @@ export class ShopInventoryService {
       // $limit stage in the repository's aggregation rejects anything but
       // a real number, so this must coerce rather than just truthy-check.
       const parsedLimit = Number(filter?.limit);
-      const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 8;
-      const shopId = await resolveRequesterShopId(requesterId, this.userRepository);
+      const limit =
+        Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 8;
+      const shopId = await resolveRequesterShopId(
+        requesterId,
+        this.userRepository,
+      );
       const rows = await this.shopInventoryRepository.getTopItemsByValue(
         shopId || filter.shopId,
         limit,
@@ -89,9 +185,9 @@ export class ShopInventoryService {
         filter,
         error,
       );
-      return CommonResponses.InternalServerErrorResponse<ShopInventoryBreakdown[]>(
-        'An error occurred while getting the shop inventory breakdown',
-      );
+      return CommonResponses.InternalServerErrorResponse<
+        ShopInventoryBreakdown[]
+      >('An error occurred while getting the shop inventory breakdown');
     }
   }
 
@@ -104,11 +200,16 @@ export class ShopInventoryService {
     requesterId: string,
   ): Promise<ApiResponseDto<ShopInventoryCategoryCount[]>> {
     try {
-      const shopId = await resolveRequesterShopId(requesterId, this.userRepository);
+      const shopId = await resolveRequesterShopId(
+        requesterId,
+        this.userRepository,
+      );
       const rows = await this.shopInventoryRepository.getActiveCategoryCounts(
         shopId || filter.shopId,
       );
-      const categories = await this.categoryRepository.getByIds(rows.map((r) => r.categoryId));
+      const categories = await this.categoryRepository.getByIds(
+        rows.map((r) => r.categoryId),
+      );
       const nameById = new Map(categories.map((c) => [c.id, c.name]));
       const counts: ShopInventoryCategoryCount[] = rows
         .map((row) => ({
@@ -124,9 +225,9 @@ export class ShopInventoryService {
         filter,
         error,
       );
-      return CommonResponses.InternalServerErrorResponse<ShopInventoryCategoryCount[]>(
-        'An error occurred while getting shop inventory category counts',
-      );
+      return CommonResponses.InternalServerErrorResponse<
+        ShopInventoryCategoryCount[]
+      >('An error occurred while getting shop inventory category counts');
     }
   }
 
@@ -135,10 +236,13 @@ export class ShopInventoryService {
   async list(
     filter: ShopInventoryFilter,
     requesterId: string,
-  ): Promise<ApiResponseDto<PagedResults<ShopInventory>>> {
+  ): Promise<ApiResponseDto<PagedResults<ShopInventoryResponse>>> {
     try {
       const { page, pageSize } = toPaginationInfo(filter);
-      const shopId = await resolveRequesterShopId(requesterId, this.userRepository);
+      const shopId = await resolveRequesterShopId(
+        requesterId,
+        this.userRepository,
+      );
       const scoped = shopId ? { ...filter, shopId } : filter;
       const { results, totalCount } =
         await this.shopInventoryRepository.list(scoped);
@@ -148,24 +252,31 @@ export class ShopInventoryService {
       // resolve it themselves - so resolve it live here instead, which needs
       // no permission of its own since it's an internal lookup.
       const inventoryIds = [...new Set(results.map((r) => r.inventoryId))];
-      const inventoryItems = await this.inventoryRepository.getByIds(inventoryIds);
+      const inventoryItems =
+        await this.inventoryRepository.getByIds(inventoryIds);
       const categoryIdByInventoryId = new Map(
         inventoryItems.map((i) => [i.id, i.categoryId]),
       );
-      const enriched = results.map((r) => ({
-        ...r,
-        inventoryInfoSnapshot: r.inventoryInfoSnapshot
-          ? {
-              ...r.inventoryInfoSnapshot,
-              categoryId:
-                categoryIdByInventoryId.get(r.inventoryId) ??
-                r.inventoryInfoSnapshot.categoryId ??
-                null,
-            }
-          : r.inventoryInfoSnapshot,
-      }));
+      const inputs = await this.getStockHealthInputs(results, inventoryItems);
+      const enriched = results.map((r) =>
+        this.toShopInventoryResponse(
+          {
+            ...r,
+            inventoryInfoSnapshot: r.inventoryInfoSnapshot
+              ? {
+                  ...r.inventoryInfoSnapshot,
+                  categoryId:
+                    categoryIdByInventoryId.get(r.inventoryId) ??
+                    r.inventoryInfoSnapshot.categoryId ??
+                    null,
+                }
+              : r.inventoryInfoSnapshot,
+          },
+          inputs,
+        ),
+      );
 
-      return CommonResponses.OkResponse<PagedResults<ShopInventory>>({
+      return CommonResponses.OkResponse<PagedResults<ShopInventoryResponse>>({
         results: enriched,
         totalCount,
         totalPages: Math.ceil(totalCount / pageSize),
@@ -179,7 +290,7 @@ export class ShopInventoryService {
         error,
       );
       return CommonResponses.InternalServerErrorResponse<
-        PagedResults<ShopInventory>
+        PagedResults<ShopInventoryResponse>
       >('An error occurred while listing shop inventory');
     }
   }

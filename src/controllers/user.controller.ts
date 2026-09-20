@@ -58,14 +58,6 @@ export class UserController {
     response.status(res.code).send(res);
   }
 
-  // Registered before ':id' - otherwise "recent-sign-ins" would be captured as an id.
-  @Get('recent-sign-ins')
-  @AuthPermissions('user.view')
-  async getRecentSignIns(@Res() response: Response) {
-    const res = await this.userService.getRecentSignIns(10);
-    response.status(res.code).send(res);
-  }
-
   @Get(':id')
   @AuthPermissions('user.view')
   @ApiParam({ name: 'id', type: String })

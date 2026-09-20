@@ -1,6 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
+  IsBoolean,
   IsEnum,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -41,4 +43,34 @@ export class VendorRequest {
   @IsOptional()
   @IsEnum(VendorStatus)
   status?: VendorStatus;
+
+  // ---- Credit policy ----
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsBoolean()
+  blockCreditIfAnyOutstanding?: boolean;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsBoolean()
+  blockCreditIfOverdue?: boolean;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  creditOverdueGraceDays?: number;
+
+  @ApiProperty({ required: false, nullable: true })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  maxOutstandingCreditBalance?: number | null;
+
+  @ApiProperty({ required: false, nullable: true })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  maxOpenCreditSales?: number | null;
 }

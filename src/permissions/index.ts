@@ -302,6 +302,17 @@ export const PERMISSION_FEATURES: PermissionFeature[] = [
     ],
   },
   {
+    feature: 'Sessions',
+    description: 'Sign-in activity across every account',
+    permissions: [
+      {
+        key: 'session.view',
+        action: 'View',
+        description: 'See sign-in history across the platform',
+      },
+    ],
+  },
+  {
     feature: 'Audit logs',
     description: 'The platform-wide activity history',
     permissions: [

@@ -51,4 +51,13 @@ export class Shop extends BaseSchema {
   @Prop({ default: null })
   @ApiProperty()
   receiptPrefix: string;
+
+  // Whether this specific shop can process Credit-method sales at all -
+  // checked in SaleService.create alongside VendorService.assertCanSellOnCredit,
+  // which governs a given vendor's own eligibility. This is the coarser,
+  // per-shop switch (e.g. a satellite kiosk with no one trained to manage a
+  // vendor ledger).
+  @Prop({ default: true })
+  @ApiProperty()
+  allowCreditSales: boolean;
 }

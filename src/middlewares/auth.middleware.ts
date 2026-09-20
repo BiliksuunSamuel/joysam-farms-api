@@ -1,9 +1,9 @@
 import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { NextFunction, Request, Response } from 'express';
+import configuration from 'src/configuration';
 import { UserJwtDetails } from 'src/dtos/auth/user.jwt.details';
 import { UserAuthSessionStatus, UserStatus } from 'src/enums';
-import { SettingsRepository } from 'src/repositories/settings.repository';
 import { UserAuthSessionRepository } from 'src/repositories/user-auth-session.repository';
 import { UserRepository } from 'src/repositories/user.repository';
 import { toPaginationInfo } from 'src/utils';
@@ -15,7 +15,6 @@ export class AuthMiddleware implements NestMiddleware {
     private readonly jwtService: JwtService,
     private readonly userRepository: UserRepository,
     private readonly userAuthSessionRepository: UserAuthSessionRepository,
-    private readonly settingsRepository: SettingsRepository,
   ) {}
   async use(req: Request, res: Response, next: NextFunction) {
     const token = req.headers.authorization?.split(' ')[1];
@@ -48,17 +47,15 @@ export class AuthMiddleware implements NestMiddleware {
 
         // Inactivity timeout, separate from the JWT's own fixed expiry -
         // a session goes stale if untouched for this long, even mid-token.
-        const settings = await this.settingsRepository.get();
-        const timeoutMinutes = settings?.sessionTimeoutMinutes;
-        if (timeoutMinutes) {
-          const minutesSinceActive =
-            (Date.now() - new Date(session.lastActiveAt).getTime()) / 60_000;
-          if (minutesSinceActive > timeoutMinutes) {
-            await this.userAuthSessionRepository.revoke(decondedToken.tokenId);
-            return res
-              .status(401)
-              .send({ message: 'Session expired due to inactivity' });
-          }
+        // Same SESSION_TIMEOUT_MINUTES value the JWT itself was signed with.
+        const timeoutMinutes = configuration().sessionTimeoutMinutes;
+        const minutesSinceActive =
+          (Date.now() - new Date(session.lastActiveAt).getTime()) / 60_000;
+        if (minutesSinceActive > timeoutMinutes) {
+          await this.userAuthSessionRepository.revoke(decondedToken.tokenId);
+          return res
+            .status(401)
+            .send({ message: 'Session expired due to inactivity' });
         }
         await this.userAuthSessionRepository.touch(decondedToken.tokenId);
       } catch (error) {

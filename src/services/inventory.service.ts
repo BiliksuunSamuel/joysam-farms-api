@@ -12,8 +12,15 @@ import { StockBreakdownGroupBy, Unit } from 'src/enums';
 import { CommonResponses } from 'src/helper/common.responses.helper';
 import { CategoryRepository } from 'src/repositories/category.repository';
 import { InventoryRepository } from 'src/repositories/inventory.repository';
+import { SaleRepository } from 'src/repositories/sale.repository';
+import { SettingsRepository } from 'src/repositories/settings.repository';
 import { Inventory } from 'src/schemas/inventory.schema';
-import { InventoryUtilsService } from 'src/services/inventory-utils.service';
+import { Settings } from 'src/schemas/settings.schema';
+import { LowStockThresholdMode } from 'src/enums';
+import {
+  InventoryUtilsService,
+  VELOCITY_WINDOW_DAYS,
+} from 'src/services/inventory-utils.service';
 import { toPaginationInfo } from 'src/utils';
 
 const TEMPLATE_COLUMNS = [
@@ -41,7 +48,33 @@ export class InventoryService {
     private readonly inventoryRepository: InventoryRepository,
     private readonly inventoryUtilsService: InventoryUtilsService,
     private readonly categoryRepository: CategoryRepository,
+    private readonly settingsRepository: SettingsRepository,
+    private readonly saleRepository: SaleRepository,
   ) {}
+
+  // Settings once, and only the items on this page's daily sales velocity -
+  // and only when DaysOfCover mode actually needs it, so FixedQuantity mode
+  // (the default) never pays for the extra aggregation.
+  private async getStockHealthInputs(inventoryIds: string[]): Promise<{
+    settings?: Settings;
+    velocityByInventoryId: Map<string, number>;
+  }> {
+    const settings = await this.settingsRepository.get();
+    if (settings?.lowStockThresholdMode !== LowStockThresholdMode.DaysOfCover) {
+      return { settings, velocityByInventoryId: new Map() };
+    }
+    const since = new Date(
+      Date.now() - VELOCITY_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    );
+    const unitsSold = await this.saleRepository.getUnitsSoldByInventoryId(
+      since,
+      inventoryIds,
+    );
+    const velocityByInventoryId = new Map(
+      [...unitsSold].map(([id, units]) => [id, units / VELOCITY_WINDOW_DAYS]),
+    );
+    return { settings, velocityByInventoryId };
+  }
 
   //get by id
   async getById(id: string): Promise<ApiResponseDto<InventoryResponse>> {
@@ -55,8 +88,15 @@ export class InventoryService {
       const category = await this.categoryRepository.getById(
         inventory.categoryId,
       );
+      const { settings, velocityByInventoryId } =
+        await this.getStockHealthInputs([inventory.id]);
       return CommonResponses.OkResponse<InventoryResponse>(
-        this.inventoryUtilsService.toInventoryResponse(inventory, category),
+        this.inventoryUtilsService.toInventoryResponse(
+          inventory,
+          category,
+          velocityByInventoryId.get(inventory.id),
+          settings,
+        ),
       );
     } catch (error) {
       this.logger.error(
@@ -104,7 +144,11 @@ export class InventoryService {
         .slice()
         .sort((a, b) => b.quantity - a.quantity)
         .slice(0, limit)
-        .map((row) => ({ label: row.label, value1: row.quantity, value2: row.revenue }));
+        .map((row) => ({
+          label: row.label,
+          value1: row.quantity,
+          value2: row.revenue,
+        }));
 
       return CommonResponses.OkResponse<StockBreakdown[]>(breakdown);
     } catch (error) {
@@ -133,8 +177,15 @@ export class InventoryService {
       const category = await this.categoryRepository.getById(
         inventory.categoryId,
       );
+      const { settings, velocityByInventoryId } =
+        await this.getStockHealthInputs([inventory.id]);
       return CommonResponses.OkResponse<InventoryResponse>(
-        this.inventoryUtilsService.toInventoryResponse(inventory, category),
+        this.inventoryUtilsService.toInventoryResponse(
+          inventory,
+          category,
+          velocityByInventoryId.get(inventory.id),
+          settings,
+        ),
       );
     } catch (error) {
       this.logger.error(
@@ -159,11 +210,15 @@ export class InventoryService {
       const categoryIds = [...new Set(results.map((item) => item.categoryId))];
       const categories = await this.categoryRepository.getByIds(categoryIds);
       const categoryById = new Map(categories.map((c) => [c.id, c]));
+      const { settings, velocityByInventoryId } =
+        await this.getStockHealthInputs(results.map((item) => item.id));
       return CommonResponses.OkResponse<PagedResults<InventoryResponse>>({
         results: results.map((item) =>
           this.inventoryUtilsService.toInventoryResponse(
             item,
             categoryById.get(item.categoryId),
+            velocityByInventoryId.get(item.id),
+            settings,
           ),
         ),
         totalCount,
@@ -192,8 +247,16 @@ export class InventoryService {
       const category = await this.categoryRepository.getById(
         inventory.categoryId,
       );
+      // A brand-new item can't have sales history yet, so there's no
+      // velocity to look up - just resolve the threshold to compare against.
+      const settings = await this.settingsRepository.get();
       return CommonResponses.CreatedResponse<InventoryResponse>(
-        this.inventoryUtilsService.toInventoryResponse(inventory, category),
+        this.inventoryUtilsService.toInventoryResponse(
+          inventory,
+          category,
+          null,
+          settings,
+        ),
       );
     } catch (error) {
       this.logger.error(
@@ -222,7 +285,9 @@ export class InventoryService {
     // readable, not just hidden behind a dropdown - and also the range the
     // Category column's dropdown validates against.
     const categorySheet = workbook.addWorksheet('Categories');
-    categorySheet.columns = [{ header: 'Category name', key: 'name', width: 28 }];
+    categorySheet.columns = [
+      { header: 'Category name', key: 'name', width: 28 },
+    ];
     categorySheet.getRow(1).font = { bold: true };
     categories.forEach((category, i) => {
       categorySheet.getCell(i + 2, 1).value = category.name;
@@ -330,9 +395,7 @@ export class InventoryService {
         const numbers: Record<string, number | undefined> = {};
         let numericError = false;
         for (const key of NUMERIC_COLUMNS) {
-          const columnIndex = TEMPLATE_COLUMNS.findIndex(
-            (c) => c.key === key,
-          );
+          const columnIndex = TEMPLATE_COLUMNS.findIndex((c) => c.key === key);
           const raw = row.getCell(columnIndex + 1).value;
           if (raw === null || raw === undefined || raw === '') continue;
           const num = Number(raw);
@@ -399,8 +462,15 @@ export class InventoryService {
       const category = await this.categoryRepository.getById(
         inventory.categoryId,
       );
+      const { settings, velocityByInventoryId } =
+        await this.getStockHealthInputs([inventory.id]);
       return CommonResponses.OkResponse<InventoryResponse>(
-        this.inventoryUtilsService.toInventoryResponse(inventory, category),
+        this.inventoryUtilsService.toInventoryResponse(
+          inventory,
+          category,
+          velocityByInventoryId.get(inventory.id),
+          settings,
+        ),
       );
     } catch (error) {
       this.logger.error(

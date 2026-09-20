@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
   IsNotEmpty,
   IsNumber,
@@ -52,7 +53,10 @@ export class ShopRequest {
   @Type(() => OperatingHourRequest)
   operatingHours?: OperatingHourRequest[];
 
-  @ApiProperty({ required: false, description: 'Monthly sales target, for analytics pacing' })
+  @ApiProperty({
+    required: false,
+    description: 'Monthly sales target, for analytics pacing',
+  })
   @IsOptional()
   @IsNumber()
   @Min(0)
@@ -62,4 +66,9 @@ export class ShopRequest {
   @IsOptional()
   @IsString()
   receiptPrefix?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsBoolean()
+  allowCreditSales?: boolean;
 }

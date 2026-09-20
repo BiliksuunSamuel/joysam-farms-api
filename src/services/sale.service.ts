@@ -19,6 +19,7 @@ import { CounterRepository } from 'src/repositories/counter.repository';
 import { InventoryRepository } from 'src/repositories/inventory.repository';
 import { RoleRepository } from 'src/repositories/role.repository';
 import { SaleRepository } from 'src/repositories/sale.repository';
+import { SettingsRepository } from 'src/repositories/settings.repository';
 import { ShopInventoryRepository } from 'src/repositories/shop-inventory.repository';
 import { ShopRepository } from 'src/repositories/shop.repository';
 import { UserRepository } from 'src/repositories/user.repository';
@@ -52,6 +53,7 @@ export class SaleService {
     private readonly ledgerEntryService: LedgerEntryService,
     private readonly vendorService: VendorService,
     private readonly paymentTransactionService: PaymentTransactionService,
+    private readonly settingsRepository: SettingsRepository,
   ) {}
 
   //get by id
@@ -343,6 +345,15 @@ export class SaleService {
         return CommonResponses.NotFoundResponse<Sale>('Shop not found');
       }
 
+      const settings = await this.settingsRepository.get();
+      if (settings && !settings.checkoutEnabled) {
+        return CommonResponses.BadRequestResponse<Sale>(
+          undefined,
+          settings.checkoutDisabledMessage ||
+            'Checkout is currently turned off',
+        );
+      }
+
       const ids = request.items.map((i) => i.inventoryId);
       if (new Set(ids).size !== ids.length) {
         return CommonResponses.BadRequestResponse<Sale>(
@@ -405,6 +416,12 @@ export class SaleService {
 
       switch (request.paymentMethod) {
         case SalePaymentMethod.Credit: {
+          if (!shop.allowCreditSales) {
+            return CommonResponses.BadRequestResponse<Sale>(
+              undefined,
+              `${shop.name} doesn't accept credit sales`,
+            );
+          }
           if (!request.vendorId) {
             return CommonResponses.BadRequestResponse<Sale>(
               undefined,

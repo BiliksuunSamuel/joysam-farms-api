@@ -36,9 +36,21 @@ export class UserAuthSession extends BaseSchema {
   status: UserAuthSessionStatus;
 
   // Touched on every authenticated request so AuthMiddleware can enforce
-  // Settings.sessionTimeoutMinutes (an inactivity timeout, not a fixed
-  // expiry - the JWT itself already has one of those).
+  // the configured inactivity timeout (SESSION_TIMEOUT_MINUTES, not a fixed
+  // expiry - the JWT itself already has one of those, signed with the same
+  // value - see configuration/index.ts).
   @Prop({ default: Date.now })
   @ApiProperty()
   lastActiveAt: Date;
+
+  // Recomputed as lastActiveAt + SESSION_TIMEOUT_MINUTES every time the
+  // session is created or touched. AuthMiddleware already revokes a
+  // stale session the moment it's used again, but if the browser never
+  // makes another request (the frontend's own inactivity timer logs the
+  // user out first, or the tab is just closed), nothing triggers that check.
+  // This field lets UserAuthSessionSweepService find and revoke those rows
+  // on a timer instead of waiting on a request that may never come.
+  @Prop({ type: Date, default: null })
+  @ApiProperty()
+  expiresAt: Date | null;
 }

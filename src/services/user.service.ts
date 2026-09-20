@@ -12,11 +12,9 @@ import { UserStatus } from 'src/enums';
 import { CommonResponses } from 'src/helper/common.responses.helper';
 import { ShopInfo } from 'src/models/shop/shop-info.model';
 import { ALL_PERMISSION_KEYS } from 'src/permissions';
-import { RecentSignInResponse } from 'src/dtos/user/recent-sign-in.response.dto';
 import { RoleRepository } from 'src/repositories/role.repository';
 import { SettingsRepository } from 'src/repositories/settings.repository';
 import { ShopRepository } from 'src/repositories/shop.repository';
-import { UserAuthSessionRepository } from 'src/repositories/user-auth-session.repository';
 import { UserAuthRepository } from 'src/repositories/user-auth.repository';
 import { UserRepository } from 'src/repositories/user.repository';
 import {
@@ -36,42 +34,7 @@ export class UserService {
     private readonly shopRepository: ShopRepository,
     private readonly roleRepository: RoleRepository,
     private readonly settingsRepository: SettingsRepository,
-    private readonly userAuthSessionRepository: UserAuthSessionRepository,
   ) {}
-
-  //most recent sign-ins across the platform, for Settings > Security
-  async getRecentSignIns(
-    limit: number,
-  ): Promise<ApiResponseDto<RecentSignInResponse[]>> {
-    try {
-      const sessions = await this.userAuthSessionRepository.listRecent(limit);
-      const userCache = new Map<string, string>();
-      const results: RecentSignInResponse[] = [];
-      for (const session of sessions) {
-        let name = userCache.get(session.userId);
-        if (name === undefined) {
-          const user = await this.userRepository.getById(session.userId);
-          name = user?.name ?? 'Unknown user';
-          userCache.set(session.userId, name);
-        }
-        results.push({
-          userId: session.userId,
-          name,
-          signedInAt: session.createdAt,
-          ipAddress: session.ipAddress,
-        });
-      }
-      return CommonResponses.OkResponse<RecentSignInResponse[]>(results);
-    } catch (error) {
-      this.logger.error(
-        'an error occurred while getting recent sign-ins',
-        error,
-      );
-      return CommonResponses.InternalServerErrorResponse<
-        RecentSignInResponse[]
-      >();
-    }
-  }
 
   async getById(id: string): Promise<ApiResponseDto<UserResponse>> {
     try {
@@ -225,9 +188,7 @@ export class UserService {
       }
 
       if (request.email && request.email !== existing.email) {
-        const emailOwner = await this.userRepository.getByEmail(
-          request.email,
-        );
+        const emailOwner = await this.userRepository.getByEmail(request.email);
         if (emailOwner && emailOwner.id !== id) {
           return CommonResponses.ConflictResponse<UserResponse>(
             'An employee with this email already exists',
@@ -386,7 +347,8 @@ export class UserService {
     if (user.status !== UserStatus.Active || !user.allPermissions) {
       return null;
     }
-    const activeCount = await this.userRepository.countActiveWithAllPermissions();
+    const activeCount =
+      await this.userRepository.countActiveWithAllPermissions();
     if (activeCount <= 1) {
       return CommonResponses.BadRequestResponse<UserResponse>(
         undefined,

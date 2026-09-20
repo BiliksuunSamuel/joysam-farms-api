@@ -28,7 +28,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     JwtModule.register({
       global: true,
       secret: constants().secret,
-      signOptions: { expiresIn: '8hrs' },
+      signOptions: { expiresIn: `${constants().sessionTimeoutMinutes}m` },
     }),
     HttpModule.register({
       timeout: 5000,

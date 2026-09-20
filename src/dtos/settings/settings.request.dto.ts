@@ -8,6 +8,7 @@ import {
   IsOptional,
   IsString,
   Min,
+  ValidateIf,
 } from 'class-validator';
 import { LowStockThresholdMode } from 'src/enums';
 
@@ -46,6 +47,11 @@ export class SettingsRequest {
   @IsOptional()
   @IsString()
   digitalAddress?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  logo?: string;
 
   // ---- Shops & receipts ----
 
@@ -93,37 +99,30 @@ export class SettingsRequest {
   @IsBoolean()
   stockAdjustmentsRequireReason?: boolean;
 
-  // ---- Credit & vendors ----
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  defaultVendorTermsDays?: number;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsBoolean()
-  blockCreditSalesWhenOverdue?: boolean;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  overdueGraceDays?: number;
-
   // ---- Security ----
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  sessionTimeoutMinutes?: number;
+  // sessionTimeoutMinutes used to live here - see settings.schema.ts.
 
   @ApiProperty({ required: false })
   @IsOptional()
   @IsBoolean()
   forcePasswordChangeOnReset?: boolean;
+
+  // ---- Operations ----
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsBoolean()
+  checkoutEnabled?: boolean;
+
+  // Only required when checkoutEnabled is explicitly being turned off -
+  // otherwise this field is untouched/irrelevant.
+  @ApiProperty({ required: false })
+  @ValidateIf((o: SettingsRequest) => o.checkoutEnabled === false)
+  @IsNotEmpty({
+    message: 'A message for staff is required when checkout is turned off',
+  })
+  @IsString()
+  checkoutDisabledMessage?: string;
 
   // ---- Notifications ----
 

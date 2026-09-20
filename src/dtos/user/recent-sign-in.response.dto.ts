@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { UserAuthSessionStatus } from 'src/enums';
 
 export class RecentSignInResponse {
   @ApiProperty()
@@ -12,4 +13,7 @@ export class RecentSignInResponse {
 
   @ApiProperty({ required: false })
   ipAddress: string | null;
+
+  @ApiProperty({ enum: UserAuthSessionStatus })
+  status: UserAuthSessionStatus;
 }

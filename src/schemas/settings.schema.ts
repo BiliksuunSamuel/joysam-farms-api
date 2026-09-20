@@ -38,6 +38,10 @@ export class Settings extends BaseSchema {
   @ApiProperty()
   digitalAddress: string;
 
+  @Prop({ type: String, default: null })
+  @ApiProperty()
+  logo: string | null;
+
   // ---- Shops & receipts ----
 
   @Prop({ default: null })
@@ -54,10 +58,12 @@ export class Settings extends BaseSchema {
 
   // ---- Inventory ----
 
-  // Persisted only for now - nothing in the app reads Inventory.reorderLevel
-  // for a low-stock report/alert yet, so there's no behaviour to attach
-  // these to (unlike transfersRequireApproval/stockAdjustmentsRequireReason
-  // below, which gate real, existing endpoints).
+  // Drives InventoryUtilsService.computeStockHealth - FixedQuantity compares
+  // quantity against the item's own reorderLevel (falling back to
+  // lowStockThresholdQuantity when it's unset), DaysOfCover projects days
+  // remaining from recent sales velocity and compares that to
+  // lowStockThresholdDays. Read by both Inventory (warehouse) and
+  // ShopInventory list/getById.
   @Prop({
     type: String,
     enum: LowStockThresholdMode,
@@ -82,31 +88,30 @@ export class Settings extends BaseSchema {
   @ApiProperty()
   stockAdjustmentsRequireReason: boolean;
 
-  // ---- Credit & vendors ----
-
-  // The termsDays a new Vendor is created with by default - doesn't affect
-  // vendors that already exist.
-  @Prop({ default: 30 })
-  @ApiProperty()
-  defaultVendorTermsDays: number;
-
-  @Prop({ default: false })
-  @ApiProperty()
-  blockCreditSalesWhenOverdue: boolean;
-
-  @Prop({ default: 0 })
-  @ApiProperty()
-  overdueGraceDays: number;
-
   // ---- Security ----
-
-  @Prop({ default: 480 })
-  @ApiProperty()
-  sessionTimeoutMinutes: number;
+  // sessionTimeoutMinutes used to live here, but a login's lifetime is now
+  // an env/ops concern (SESSION_TIMEOUT_MINUTES) rather than admin-editable
+  // per-tenant config - see configuration/index.ts.
 
   @Prop({ default: true })
   @ApiProperty()
   forcePasswordChangeOnReset: boolean;
+
+  // ---- Operations ----
+
+  // A platform-wide kill switch - checked first in SaleService.create,
+  // before any other validation, and blocks every payment method at every
+  // shop. The checkout page itself stays browsable; only completing a sale
+  // is blocked (see checkoutDisabledMessage, shown there as a banner).
+  @Prop({ default: true })
+  @ApiProperty()
+  checkoutEnabled: boolean;
+
+  // Required (see SettingsRequest) whenever checkoutEnabled is false, so
+  // staff always see why they're locked out rather than a generic error.
+  @Prop({ type: String, default: null })
+  @ApiProperty()
+  checkoutDisabledMessage: string | null;
 
   // ---- Notifications ----
   // Preferences only - nothing sends an email or an in-app notification yet.

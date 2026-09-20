@@ -20,7 +20,7 @@ export class SettingsRepository {
 
   //create it on first save, update it every time after
   async upsert(
-    request: SettingsRequest,
+    request: Partial<SettingsRequest>,
     updatedByInfoSnapshot?: UserInfo,
   ): Promise<Settings> {
     return await this.settingsRepository

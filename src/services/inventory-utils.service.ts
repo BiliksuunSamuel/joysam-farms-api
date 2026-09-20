@@ -1,10 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import { InventoryResponse } from 'src/dtos/inventory/inventory.response.dto';
+import { LowStockThresholdMode } from 'src/enums';
 import { Category } from 'src/schemas/category.schema';
 import { Inventory } from 'src/schemas/inventory.schema';
+import { Settings } from 'src/schemas/settings.schema';
 import { generateNumericCode } from 'src/utils';
 
 const SERIAL_NUMBER_LENGTH = 12;
+
+// How far back to look when estimating an item's daily sales velocity for
+// DaysOfCover mode - long enough to smooth out day-to-day noise, short
+// enough to reflect how the item is actually moving right now.
+export const VELOCITY_WINDOW_DAYS = 14;
+
+export type StockHealth = 'out' | 'low' | 'ok';
 
 // EAN-13 digit encodings, 7 modules ('0'/'1') each.
 const L_CODE: Record<string, string> = {
@@ -121,12 +130,75 @@ export class InventoryUtilsService {
   //shapes an inventory item for an API response: attaches its barcodeSvg
   //and its category's name/description, both computed at read time rather
   //than persisted, so they always reflect current data
-  toInventoryResponse(inventory: Inventory, category?: Category): InventoryResponse {
+  toInventoryResponse(
+    inventory: Inventory,
+    category?: Category,
+    dailyVelocity?: number | null,
+    settings?: Settings,
+  ): InventoryResponse {
+    const { stockHealth, daysOfCover } = this.computeStockHealth({
+      quantity: inventory.quantity,
+      reorderLevel: inventory.reorderLevel,
+      mode:
+        settings?.lowStockThresholdMode ?? LowStockThresholdMode.FixedQuantity,
+      thresholdQuantity: settings?.lowStockThresholdQuantity ?? 10,
+      thresholdDays: settings?.lowStockThresholdDays ?? 3,
+      dailyVelocity: dailyVelocity ?? null,
+    });
     return {
       ...inventory,
       barcodeSvg: this.generateBarcodeSvg(inventory.barcode),
       categoryName: category?.name ?? '',
       categoryDescription: category?.description ?? null,
+      stockHealth,
+      daysOfCover,
+    };
+  }
+
+  /**
+   * Whether an item counts as low stock, and (in DaysOfCover mode) how many
+   * days its remaining quantity is projected to last. Out-of-stock (<= 0)
+   * always wins regardless of mode - there's no meaningful "healthy" or
+   * "low" reading for a shelf that's already empty.
+   *
+   * FixedQuantity mode prefers the item's own reorderLevel (a real,
+   * per-product setting) over the platform-wide default, since a merchant
+   * who bothered to set one presumably knows this product better than a
+   * blanket number does; the default only covers items nobody has tuned.
+   */
+  computeStockHealth(params: {
+    quantity: number;
+    reorderLevel: number;
+    mode: LowStockThresholdMode;
+    thresholdQuantity: number;
+    thresholdDays: number;
+    dailyVelocity: number | null;
+  }): { stockHealth: StockHealth; daysOfCover: number | null } {
+    if (params.quantity <= 0) {
+      return {
+        stockHealth: 'out',
+        daysOfCover: params.dailyVelocity ? 0 : null,
+      };
+    }
+
+    if (params.mode === LowStockThresholdMode.DaysOfCover) {
+      if (!params.dailyVelocity) {
+        // Not selling in the lookback window - nothing projects it running
+        // out, so there's no "low" reading to make under this mode.
+        return { stockHealth: 'ok', daysOfCover: null };
+      }
+      const daysOfCover = params.quantity / params.dailyVelocity;
+      return {
+        stockHealth: daysOfCover <= params.thresholdDays ? 'low' : 'ok',
+        daysOfCover,
+      };
+    }
+
+    const effectiveThreshold =
+      params.reorderLevel > 0 ? params.reorderLevel : params.thresholdQuantity;
+    return {
+      stockHealth: params.quantity <= effectiveThreshold ? 'low' : 'ok',
+      daysOfCover: null,
     };
   }
 

@@ -10,7 +10,6 @@ import { LedgerSource, VendorLedgerEntryType, VendorStatus } from 'src/enums';
 import { CommonResponses } from 'src/helper/common.responses.helper';
 import { ShopInfo } from 'src/models/shop/shop-info.model';
 import { LedgerEntryService } from 'src/services/ledger-entry.service';
-import { SettingsRepository } from 'src/repositories/settings.repository';
 import { ShopRepository } from 'src/repositories/shop.repository';
 import { VendorLedgerEntryRepository } from 'src/repositories/vendor-ledger-entry.repository';
 import { VendorRepository } from 'src/repositories/vendor.repository';
@@ -26,7 +25,6 @@ export class VendorService {
     private readonly vendorLedgerEntryRepository: VendorLedgerEntryRepository,
     private readonly shopRepository: ShopRepository,
     private readonly ledgerEntryService: LedgerEntryService,
-    private readonly settingsRepository: SettingsRepository,
   ) {}
 
   //get by id
@@ -34,11 +32,19 @@ export class VendorService {
     try {
       const vendor = await this.vendorRepository.getById(id);
       if (!vendor) {
-        return CommonResponses.NotFoundResponse<VendorResponse>('Vendor not found');
+        return CommonResponses.NotFoundResponse<VendorResponse>(
+          'Vendor not found',
+        );
       }
-      return CommonResponses.OkResponse<VendorResponse>(await this.toVendorResponse(vendor));
+      return CommonResponses.OkResponse<VendorResponse>(
+        await this.toVendorResponse(vendor),
+      );
     } catch (error) {
-      this.logger.error('an error occurred while getting vendor by id', id, error);
+      this.logger.error(
+        'an error occurred while getting vendor by id',
+        id,
+        error,
+      );
       return CommonResponses.InternalServerErrorResponse<VendorResponse>(
         'An error occurred while getting vendor by id',
       );
@@ -46,11 +52,15 @@ export class VendorService {
   }
 
   //list, optionally scoped by status, with search over name/contact
-  async list(filter: VendorFilter): Promise<ApiResponseDto<PagedResults<VendorResponse>>> {
+  async list(
+    filter: VendorFilter,
+  ): Promise<ApiResponseDto<PagedResults<VendorResponse>>> {
     try {
       const { page, pageSize } = toPaginationInfo(filter);
       const { results, totalCount } = await this.vendorRepository.list(filter);
-      const vendors = await Promise.all(results.map((v) => this.toVendorResponse(v)));
+      const vendors = await Promise.all(
+        results.map((v) => this.toVendorResponse(v)),
+      );
       return CommonResponses.OkResponse<PagedResults<VendorResponse>>({
         results: vendors,
         totalCount,
@@ -59,20 +69,32 @@ export class VendorService {
         pageSize,
       });
     } catch (error) {
-      this.logger.error('an error occurred while listing vendors', filter, error);
-      return CommonResponses.InternalServerErrorResponse<PagedResults<VendorResponse>>(
-        'An error occurred while listing vendors',
+      this.logger.error(
+        'an error occurred while listing vendors',
+        filter,
+        error,
       );
+      return CommonResponses.InternalServerErrorResponse<
+        PagedResults<VendorResponse>
+      >('An error occurred while listing vendors');
     }
   }
 
   //register a vendor
-  async create(request: VendorRequest): Promise<ApiResponseDto<VendorResponse>> {
+  async create(
+    request: VendorRequest,
+  ): Promise<ApiResponseDto<VendorResponse>> {
     try {
       const vendor = await this.vendorRepository.create(request);
-      return CommonResponses.CreatedResponse<VendorResponse>(await this.toVendorResponse(vendor));
+      return CommonResponses.CreatedResponse<VendorResponse>(
+        await this.toVendorResponse(vendor),
+      );
     } catch (error) {
-      this.logger.error('an error occurred while registering vendor', request, error);
+      this.logger.error(
+        'an error occurred while registering vendor',
+        request,
+        error,
+      );
       return CommonResponses.InternalServerErrorResponse<VendorResponse>(
         'An error occurred while registering vendor',
       );
@@ -80,15 +102,26 @@ export class VendorService {
   }
 
   //update profile fields
-  async update(id: string, request: VendorRequest): Promise<ApiResponseDto<VendorResponse>> {
+  async update(
+    id: string,
+    request: VendorRequest,
+  ): Promise<ApiResponseDto<VendorResponse>> {
     try {
       const vendor = await this.vendorRepository.update(id, request);
       if (!vendor) {
-        return CommonResponses.NotFoundResponse<VendorResponse>('Vendor not found');
+        return CommonResponses.NotFoundResponse<VendorResponse>(
+          'Vendor not found',
+        );
       }
-      return CommonResponses.OkResponse<VendorResponse>(await this.toVendorResponse(vendor));
+      return CommonResponses.OkResponse<VendorResponse>(
+        await this.toVendorResponse(vendor),
+      );
     } catch (error) {
-      this.logger.error('an error occurred while updating vendor', { id, request }, error);
+      this.logger.error(
+        'an error occurred while updating vendor',
+        { id, request },
+        error,
+      );
       return CommonResponses.InternalServerErrorResponse<VendorResponse>(
         'An error occurred while updating vendor',
       );
@@ -101,7 +134,8 @@ export class VendorService {
   ): Promise<ApiResponseDto<PagedResults<VendorLedgerEntry>>> {
     try {
       const { page, pageSize } = toPaginationInfo(filter);
-      const { results, totalCount } = await this.vendorLedgerEntryRepository.list(filter);
+      const { results, totalCount } =
+        await this.vendorLedgerEntryRepository.list(filter);
       return CommonResponses.OkResponse<PagedResults<VendorLedgerEntry>>({
         results,
         totalCount,
@@ -110,10 +144,14 @@ export class VendorService {
         pageSize,
       });
     } catch (error) {
-      this.logger.error('an error occurred while getting the vendor ledger', filter, error);
-      return CommonResponses.InternalServerErrorResponse<PagedResults<VendorLedgerEntry>>(
-        'An error occurred while getting the vendor ledger',
+      this.logger.error(
+        'an error occurred while getting the vendor ledger',
+        filter,
+        error,
       );
+      return CommonResponses.InternalServerErrorResponse<
+        PagedResults<VendorLedgerEntry>
+      >('An error occurred while getting the vendor ledger');
     }
   }
 
@@ -132,17 +170,25 @@ export class VendorService {
     try {
       const vendor = await this.vendorRepository.getById(id);
       if (!vendor) {
-        return CommonResponses.NotFoundResponse<VendorResponse>('Vendor not found');
+        return CommonResponses.NotFoundResponse<VendorResponse>(
+          'Vendor not found',
+        );
       }
       const shop = await this.shopRepository.getById(request.shopId);
       if (!shop) {
-        return CommonResponses.NotFoundResponse<VendorResponse>('Shop not found');
+        return CommonResponses.NotFoundResponse<VendorResponse>(
+          'Shop not found',
+        );
       }
 
       const date = request.date ? new Date(request.date) : new Date();
       let balance = await this.vendorLedgerEntryRepository.getBalance(id);
 
-      const postPayment = (amount: number, referenceId: string | null, description?: string) => {
+      const postPayment = (
+        amount: number,
+        referenceId: string | null,
+        description?: string,
+      ) => {
         balance += amount;
         return this.vendorLedgerEntryRepository.create({
           vendorId: id,
@@ -161,11 +207,15 @@ export class VendorService {
       };
 
       let remaining = request.amount;
-      const outstanding = await this.vendorLedgerEntryRepository.getOutstandingCharges(id);
+      const outstanding =
+        await this.vendorLedgerEntryRepository.getOutstandingCharges(id);
       for (const charge of outstanding) {
         if (remaining <= 0) break;
         const allocated = Math.min(remaining, charge.outstandingAmount);
-        await this.vendorLedgerEntryRepository.reduceOutstanding(charge.id, allocated);
+        await this.vendorLedgerEntryRepository.reduceOutstanding(
+          charge.id,
+          allocated,
+        );
         await postPayment(allocated, charge.referenceId);
         remaining -= allocated;
       }
@@ -173,16 +223,27 @@ export class VendorService {
       // Exceeds every outstanding order - held as unallocated credit on the
       // account rather than tied to a specific one.
       if (remaining > 0) {
-        await postPayment(remaining, null, request.note ?? 'Advance payment, not yet applied to an order');
+        await postPayment(
+          remaining,
+          null,
+          request.note ?? 'Advance payment, not yet applied to an order',
+        );
       }
 
-      await this.ledgerEntryService.credit(request.shopId, request.amount, LedgerSource.VendorPayment, {
-        description: `Payment from ${vendor.name}`,
-        recordedById,
-      });
+      await this.ledgerEntryService.credit(
+        request.shopId,
+        request.amount,
+        LedgerSource.VendorPayment,
+        {
+          description: `Payment from ${vendor.name}`,
+          recordedById,
+        },
+      );
 
       const updated = await this.vendorRepository.getById(id);
-      return CommonResponses.OkResponse<VendorResponse>(await this.toVendorResponse(updated));
+      return CommonResponses.OkResponse<VendorResponse>(
+        await this.toVendorResponse(updated),
+      );
     } catch (error) {
       this.logger.error(
         'an error occurred while recording a vendor payment',
@@ -198,33 +259,78 @@ export class VendorService {
   /**
    * Internal API for SaleService: whether a vendor can be sold to on
    * credit right now - lean, not HTTP-response-shaped, the same convention
-   * as LedgerEntryService.credit/debit. There's no credit limit to check
-   * against (this isn't a borrowing platform with a pre-approved spending
-   * ceiling) - the only thing that can block a sale is the vendor being on
-   * hold.
+   * as LedgerEntryService.credit/debit. `status` (OnHold) is a manual
+   * freeze; everything else is each vendor's own configurable credit
+   * policy - all of it optional, and every rule the vendor has turned on
+   * must pass. There's still no single platform-wide credit limit - a
+   * reliable vendor and a new, unproven one can be governed differently.
    */
   async assertCanSellOnCredit(
     vendorId: string,
-  ): Promise<{ status: 'ok'; vendor: Vendor } | { status: 'error'; message: string }> {
+  ): Promise<
+    { status: 'ok'; vendor: Vendor } | { status: 'error'; message: string }
+  > {
     const vendor = await this.vendorRepository.getById(vendorId);
     if (!vendor) return { status: 'error', message: 'Vendor not found' };
     if (vendor.status === VendorStatus.OnHold) {
-      return { status: 'error', message: `${vendor.name}'s credit account is on hold` };
+      return {
+        status: 'error',
+        message: `${vendor.name}'s credit account is on hold`,
+      };
     }
 
-    const settings = await this.settingsRepository.get();
-    if (settings?.blockCreditSalesWhenOverdue) {
-      const graceDays = settings.overdueGraceDays ?? 0;
-      const outstanding = await this.vendorLedgerEntryRepository.getOutstandingCharges(vendorId);
+    const needsOutstanding =
+      vendor.blockCreditIfAnyOutstanding ||
+      vendor.blockCreditIfOverdue ||
+      vendor.maxOutstandingCreditBalance != null ||
+      vendor.maxOpenCreditSales != null;
+    if (!needsOutstanding) return { status: 'ok', vendor };
+
+    const outstanding =
+      await this.vendorLedgerEntryRepository.getOutstandingCharges(vendorId);
+
+    if (vendor.blockCreditIfAnyOutstanding && outstanding.length > 0) {
+      return {
+        status: 'error',
+        message: `${vendor.name} already has a pending credit balance`,
+      };
+    }
+
+    if (vendor.blockCreditIfOverdue) {
+      const graceDays = vendor.creditOverdueGraceDays ?? 0;
       const isOverdue = outstanding.some(
         (charge) =>
           charge.dueDate &&
-          new Date(charge.dueDate).getTime() + graceDays * 86_400_000 < Date.now(),
+          new Date(charge.dueDate).getTime() + graceDays * 86_400_000 <
+            Date.now(),
       );
       if (isOverdue) {
         return {
           status: 'error',
           message: `${vendor.name} has an overdue balance and can't be sold to on credit right now`,
+        };
+      }
+    }
+
+    if (
+      vendor.maxOpenCreditSales != null &&
+      outstanding.length >= vendor.maxOpenCreditSales
+    ) {
+      return {
+        status: 'error',
+        message: `${vendor.name} already has ${outstanding.length} open credit sale(s) - the limit is ${vendor.maxOpenCreditSales}`,
+      };
+    }
+
+    if (vendor.maxOutstandingCreditBalance != null) {
+      const totalOutstanding = outstanding.reduce(
+        (sum, c) => sum + c.outstandingAmount,
+        0,
+      );
+      if (totalOutstanding >= vendor.maxOutstandingCreditBalance) {
+        return {
+          status: 'error',
+          message: `${vendor.name}'s outstanding balance is at its credit limit`,
         };
       }
     }
@@ -247,7 +353,9 @@ export class VendorService {
     note?: string,
     dueDateOverride?: Date,
   ): Promise<VendorLedgerEntry> {
-    const balance = await this.vendorLedgerEntryRepository.getBalance(vendor.id);
+    const balance = await this.vendorLedgerEntryRepository.getBalance(
+      vendor.id,
+    );
     let dueDate = dueDateOverride;
     if (!dueDate) {
       dueDate = new Date();

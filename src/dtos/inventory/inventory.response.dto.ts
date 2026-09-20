@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { StockHealth } from 'src/services/inventory-utils.service';
 import { Inventory } from 'src/schemas/inventory.schema';
 
 // Inherits every Inventory field, so computed/derived information has
@@ -17,4 +18,15 @@ export class InventoryResponse extends Inventory {
 
   @ApiProperty()
   categoryDescription: string | null;
+
+  // Computed from Settings.lowStockThresholdMode at read time (never
+  // persisted) - see InventoryUtilsService.computeStockHealth. 'out' always
+  // wins over 'low' regardless of mode.
+  @ApiProperty()
+  stockHealth: StockHealth;
+
+  // Only set in DaysOfCover mode with recent sales to project from -
+  // null otherwise (including every FixedQuantity-mode item).
+  @ApiProperty()
+  daysOfCover: number | null;
 }

@@ -62,6 +62,74 @@ export class SaleRepository {
       .lean();
   }
 
+  // Units sold per inventory item since `since`, summed across every shop -
+  // the "how fast is this moving overall" rate InventoryUtilsService turns
+  // into days-of-cover for the warehouse view. Completed sales only
+  // (Voided/Pending stock never really left the shelf).
+  async getUnitsSoldByInventoryId(
+    since: Date,
+    inventoryIds?: string[],
+  ): Promise<Map<string, number>> {
+    const match: any = {
+      status: SaleStatus.Completed,
+      createdAt: { $gte: since },
+    };
+    if (inventoryIds?.length)
+      match['items.inventoryId'] = { $in: inventoryIds };
+
+    const rows = await this.saleRepository.aggregate([
+      { $match: match },
+      { $unwind: '$items' },
+      ...(inventoryIds?.length
+        ? [{ $match: { 'items.inventoryId': { $in: inventoryIds } } }]
+        : []),
+      {
+        $group: {
+          _id: '$items.inventoryId',
+          quantity: { $sum: '$items.quantity' },
+        },
+      },
+    ]);
+    return new Map(rows.map((r) => [r._id as string, r.quantity as number]));
+  }
+
+  // Same as above, but per shop - one shop's own sell-through rate for an
+  // item, keyed `${shopId}:${inventoryId}` since a Stocks list can span
+  // every shop at once.
+  async getUnitsSoldByShopAndInventoryId(
+    since: Date,
+    opts?: { shopId?: string; inventoryIds?: string[] },
+  ): Promise<Map<string, number>> {
+    const match: any = {
+      status: SaleStatus.Completed,
+      createdAt: { $gte: since },
+    };
+    if (opts?.shopId) match.shopId = opts.shopId;
+    if (opts?.inventoryIds?.length) {
+      match['items.inventoryId'] = { $in: opts.inventoryIds };
+    }
+
+    const rows = await this.saleRepository.aggregate([
+      { $match: match },
+      { $unwind: '$items' },
+      ...(opts?.inventoryIds?.length
+        ? [{ $match: { 'items.inventoryId': { $in: opts.inventoryIds } } }]
+        : []),
+      {
+        $group: {
+          _id: { shopId: '$shopId', inventoryId: '$items.inventoryId' },
+          quantity: { $sum: '$items.quantity' },
+        },
+      },
+    ]);
+    return new Map(
+      rows.map((r) => [
+        `${r._id.shopId}:${r._id.inventoryId}`,
+        r.quantity as number,
+      ]),
+    );
+  }
+
   //list, optionally scoped by shop/cashier/payment method/status
   async list(
     filter: SaleFilter,

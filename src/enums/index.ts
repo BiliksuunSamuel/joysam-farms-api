@@ -215,7 +215,8 @@ export enum VendorPaymentMethod {
 
 // How Settings.lowStockThresholdQuantity/lowStockThresholdDays should be
 // read - a fixed unit count, or a projected days-of-cover based on recent
-// sales. Persisted only for now; nothing consumes it yet (see Settings).
+// sales - see InventoryUtilsService.computeStockHealth for where this is
+// actually applied.
 export enum LowStockThresholdMode {
   FixedQuantity = 'FixedQuantity',
   DaysOfCover = 'DaysOfCover',
