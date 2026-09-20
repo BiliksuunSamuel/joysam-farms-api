@@ -291,9 +291,14 @@ export class PaymentTransactionService {
   //Paystack can't be reached or rejects the request, the reservation is
   //released immediately (void + restore stock) rather than leaving a
   //Pending sale with no way to ever be paid.
+  //
+  //amountGhs is the gateway-settled amount - the whole sale.total for a
+  //pure Digital sale, or just the momo leg's amount for a Split sale (whose
+  //cash leg was already collected at the till, outside Paystack entirely).
   async initiateForSale(
     sale: Sale,
     email: string,
+    amountGhs: number,
   ): Promise<{ authorizationUrl: string } | null> {
     const reference = `PSK-${generateId()}`;
     // Lands back on checkout itself - it polls this reference and opens the
@@ -303,7 +308,7 @@ export class PaymentTransactionService {
 
     const res = await this.paystackService.initiateTransaction({
       reference,
-      amountGhs: sale.total,
+      amountGhs,
       email,
       callbackUrl,
     });
@@ -321,7 +326,7 @@ export class PaymentTransactionService {
       saleId: sale.id,
       reference,
       shopId: sale.shopId,
-      amount: sale.total,
+      amount: amountGhs,
       email,
       authorizationUrl: res.data.authorization_url,
     });

@@ -390,12 +390,18 @@ export class SaleService {
 
       const isCredit = request.paymentMethod === SalePaymentMethod.Credit;
       const isDigital = request.paymentMethod === SalePaymentMethod.Digital;
+      const isSplit = request.paymentMethod === SalePaymentMethod.Split;
+      // Split's only supported pairing is Cash + a Paystack (Digital) leg -
+      // see the Split case below - so a valid Split, like pure Digital, is
+      // never settled synchronously at creation time.
+      const needsPaystack = isDigital || isSplit;
       let amountTendered: number | undefined;
       let changeGiven: number | undefined;
       let vendor: Vendor | undefined;
       let momoNetwork: string | undefined;
       let momoPhone: string | undefined;
       let payments: PaymentSplit[] | undefined;
+      let paystackAmount: number | undefined;
 
       switch (request.paymentMethod) {
         case SalePaymentMethod.Credit: {
@@ -443,6 +449,12 @@ export class SaleService {
           break;
         }
         case SalePaymentMethod.Split: {
+          // The only supported pairing: one Cash leg (settled immediately,
+          // at the till) and one Digital leg (settled later via Paystack,
+          // same as a pure-Digital sale - see needsPaystack above). The
+          // buyer's momo number is collected on Paystack's own hosted
+          // checkout, never typed by the cashier, so the Digital leg needs
+          // no momoNetwork/momoPhone.
           const legs = request.payments ?? [];
           if (legs.length !== 2) {
             return CommonResponses.BadRequestResponse<Sale>(
@@ -452,7 +464,7 @@ export class SaleService {
           }
           const cashLeg = legs.find((l) => l.method === SalePaymentMethod.Cash);
           const momoLeg = legs.find(
-            (l) => l.method === SalePaymentMethod.MobileMoney,
+            (l) => l.method === SalePaymentMethod.Digital,
           );
           if (!cashLeg || !momoLeg) {
             return CommonResponses.BadRequestResponse<Sale>(
@@ -477,10 +489,10 @@ export class SaleService {
               'The cash tendered is less than the cash portion of this split',
             );
           }
-          if (!momoLeg.momoNetwork || !momoLeg.momoPhone) {
+          if (!momoLeg.amount || momoLeg.amount <= 0) {
             return CommonResponses.BadRequestResponse<Sale>(
               undefined,
-              'A mobile money network and phone number are required for this split',
+              'The mobile money portion of this split must be greater than zero',
             );
           }
           payments = [
@@ -495,14 +507,15 @@ export class SaleService {
               momoPhone: null,
             },
             {
-              method: SalePaymentMethod.MobileMoney,
+              method: SalePaymentMethod.Digital,
               amount: momoLeg.amount,
               amountTendered: null,
               changeGiven: null,
-              momoNetwork: momoLeg.momoNetwork,
-              momoPhone: momoLeg.momoPhone,
+              momoNetwork: null,
+              momoPhone: null,
             },
           ];
+          paystackAmount = momoLeg.amount;
           break;
         }
         case SalePaymentMethod.Digital: {
@@ -542,7 +555,8 @@ export class SaleService {
         discount,
         total,
         paymentMethod: request.paymentMethod,
-        status: isDigital ? SaleStatus.Pending : SaleStatus.Completed,
+        isSplitSale: isSplit,
+        status: needsPaystack ? SaleStatus.Pending : SaleStatus.Completed,
         amountTendered,
         changeGiven,
         vendorId: vendor?.id,
@@ -565,15 +579,22 @@ export class SaleService {
           request.vendorNote,
           request.vendorDueDate ? new Date(request.vendorDueDate) : undefined,
         );
-      } else if (isDigital) {
-        // No cash changed hands yet either - the sale sits Pending (stock
-        // already reserved above) until Paystack confirms, at which point
-        // PaymentTransactionService posts this same ledger credit itself.
-        // See its initiateForSale, which also releases the reservation
-        // immediately (void + restore stock) if Paystack can't be reached.
+      } else if (needsPaystack) {
+        // For pure Digital, no cash changed hands yet. For a Split, the
+        // cash leg *was* just collected at the till, but the ledger is only
+        // ever credited once for the sale's full total (see
+        // PaymentTransactionService.completeSale) - crediting it now, before
+        // the momo leg is confirmed, would double-count if the sale later
+        // has to be voided (cash refunded out-of-band by the cashier). The
+        // sale sits Pending (stock already reserved above) until Paystack
+        // confirms just the momo leg's amount. See initiateForSale, which
+        // also releases the reservation immediately (void + restore stock,
+        // for the WHOLE sale including the already-collected cash) if
+        // Paystack can't be reached.
         const initiated = await this.paymentTransactionService.initiateForSale(
           sale,
           cashier.email,
+          paystackAmount ?? total,
         );
         if (!initiated) {
           return CommonResponses.BadRequestResponse<Sale>(

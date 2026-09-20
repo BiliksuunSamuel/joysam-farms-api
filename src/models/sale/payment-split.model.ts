@@ -2,8 +2,11 @@ import { Prop, Schema } from '@nestjs/mongoose';
 import { ApiProperty } from '@nestjs/swagger';
 import { SalePaymentMethod } from 'src/enums';
 
-// One leg of a split sale - always Cash or MobileMoney (Credit is never
-// split, see SaleService.create).
+// One leg of a split sale - always Cash + Digital (Paystack) going forward
+// (Credit is never split, see SaleService.create). momoNetwork/momoPhone
+// are legacy fields from an earlier Cash+MobileMoney (manually-recorded,
+// no gateway) pairing - left on the schema so older Split sales still
+// display correctly, but never populated by new sales.
 //
 // @Schema() is required even though this is never a top-level collection -
 // SchemaFactory.createForClass() only discovers @Prop() fields on classes
@@ -27,7 +30,7 @@ export class PaymentSplit {
   @ApiProperty()
   changeGiven: number;
 
-  // MobileMoney leg only.
+  // Legacy MobileMoney leg only - see class comment above.
   @Prop({ default: null })
   @ApiProperty()
   momoNetwork: string;

@@ -2,8 +2,8 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { SalePaymentMethod } from 'src/enums';
 
-// One leg of a split sale - the service validates this is Cash or
-// MobileMoney only (Credit is never split).
+// One leg of a split sale - the service validates this is Cash or Digital
+// only (Credit is never split; see SaleService.create).
 export class PaymentSplitRequest {
   @ApiProperty({ enum: SalePaymentMethod })
   @IsEnum(SalePaymentMethod)
@@ -21,7 +21,9 @@ export class PaymentSplitRequest {
   @Min(0)
   amountTendered?: number;
 
-  // MobileMoney leg only.
+  // Legacy MobileMoney leg fields - unused by a Cash+Digital split, kept
+  // only so old clients/tests targeting the previous Cash+MobileMoney
+  // pairing don't break the request shape.
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()

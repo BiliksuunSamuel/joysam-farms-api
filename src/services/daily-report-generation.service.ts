@@ -113,6 +113,18 @@ export class DailyReportGenerationService {
     const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
     const unitsSold = categoryRows.reduce((sum, r) => sum + r.value2, 0);
 
+    const paymentMethodBreakdown =
+      await this.saleRepository.getPaymentMethodTotals(
+        shopId,
+        dayStart,
+        dayEnd,
+      );
+    const splitSalesTotals = await this.saleRepository.getSplitSalesTotals(
+      shopId,
+      dayStart,
+      dayEnd,
+    );
+
     const [openingBalance, closingBalance] = await Promise.all([
       this.ledgerEntryRepository.getBalanceAsOf(shopId, dayStart),
       this.ledgerEntryRepository.getBalanceAsOf(shopId, trendEnd),
@@ -160,6 +172,9 @@ export class DailyReportGenerationService {
           revenue: r.value1,
           unitsSold: r.value2,
         })),
+        paymentMethodBreakdown,
+        splitSalesCount: splitSalesTotals.count,
+        splitSalesValue: splitSalesTotals.value,
       },
       cashFlow: {
         openingBalance,

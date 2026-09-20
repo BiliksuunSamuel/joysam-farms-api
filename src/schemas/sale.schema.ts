@@ -60,6 +60,13 @@ export class Sale extends BaseSchema {
   @ApiProperty({ enum: SalePaymentMethod })
   paymentMethod: SalePaymentMethod;
 
+  // Denormalized from paymentMethod === Split, so reporting can filter/index
+  // on a plain boolean rather than a string comparison - see
+  // SaleRepository.getSplitSalesTotals.
+  @Prop({ default: false })
+  @ApiProperty()
+  isSplitSale: boolean;
+
   // Cash only - how much the buyer handed over and their change.
   @Prop({ default: null })
   @ApiProperty()
@@ -78,8 +85,9 @@ export class Sale extends BaseSchema {
   @ApiProperty()
   momoPhone: string;
 
-  // Split only - exactly two legs (one Cash + one MobileMoney). Empty for
-  // every other paymentMethod, whose detail lives in the flat fields above.
+  // Split only - exactly two legs (one Cash + one Digital, going forward -
+  // older sales may have Cash + MobileMoney). Empty for every other
+  // paymentMethod, whose detail lives in the flat fields above.
   @Prop({ type: [PaymentSplitSchema], default: [] })
   @ApiProperty({ type: [PaymentSplit] })
   payments: PaymentSplit[];

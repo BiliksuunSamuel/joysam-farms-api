@@ -23,6 +23,7 @@ export type CreateSaleRecord = {
   discount: number;
   total: number;
   paymentMethod: SalePaymentMethod;
+  isSplitSale: boolean;
   status: SaleStatus;
   amountTendered?: number;
   changeGiven?: number;
@@ -44,14 +45,18 @@ export class SaleRepository {
     return await this.saleRepository.findOne({ id }).lean();
   }
 
-  //Digital sales still Pending after `before` - abandoned checkout
-  //sessions that never reached a terminal Paystack state (see
-  //PaymentTransactionSweepService).
+  //Digital and Split sales still Pending after `before` - abandoned
+  //checkout sessions that never reached a terminal Paystack state (see
+  //PaymentTransactionSweepService). Every Split sale has exactly one
+  //Digital (Paystack) leg - see SaleService.create - so it's swept the
+  //same way a pure-Digital sale is.
   async findStalePendingDigital(before: Date): Promise<Sale[]> {
     return await this.saleRepository
       .find({
         status: SaleStatus.Pending,
-        paymentMethod: SalePaymentMethod.Digital,
+        paymentMethod: {
+          $in: [SalePaymentMethod.Digital, SalePaymentMethod.Split],
+        },
         createdAt: { $lt: before },
       })
       .lean();
@@ -191,6 +196,68 @@ export class SaleRepository {
       value1: r.value1,
       value2: r.value2,
     }));
+  }
+
+  //revenue per payment method for a fixed date range - a Split sale is
+  //unwound into its individual legs first, so a GH₵135 Cash+Digital split
+  //contributes GH₵100 to Cash and GH₵35 to Digital instead of GH₵135 to a
+  //generic "Split" bucket. Used by the Daily Report. shopId undefined =
+  //every shop.
+  async getPaymentMethodTotals(
+    shopId: string | undefined,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<{ method: SalePaymentMethod; revenue: number }[]> {
+    const match: any = {
+      status: SaleStatus.Completed,
+      createdAt: { $gte: startDate, $lt: endDate },
+    };
+    if (shopId) match.shopId = shopId;
+
+    const results = await this.saleRepository.aggregate([
+      { $match: match },
+      {
+        $project: {
+          legs: {
+            $cond: [
+              { $eq: ['$paymentMethod', SalePaymentMethod.Split] },
+              '$payments',
+              [{ method: '$paymentMethod', amount: '$total' }],
+            ],
+          },
+        },
+      },
+      { $unwind: '$legs' },
+      {
+        $group: {
+          _id: '$legs.method',
+          revenue: { $sum: '$legs.amount' },
+        },
+      },
+    ]);
+
+    return results.map((r) => ({ method: r._id, revenue: r.revenue }));
+  }
+
+  //count + total value of split sales for a fixed date range - used by the
+  //Daily Report. shopId undefined = every shop.
+  async getSplitSalesTotals(
+    shopId: string | undefined,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<{ count: number; value: number }> {
+    const match: any = {
+      isSplitSale: true,
+      status: SaleStatus.Completed,
+      createdAt: { $gte: startDate, $lt: endDate },
+    };
+    if (shopId) match.shopId = shopId;
+
+    const [totals] = await this.saleRepository.aggregate([
+      { $match: match },
+      { $group: { _id: null, count: { $sum: 1 }, value: { $sum: '$total' } } },
+    ]);
+    return { count: totals?.count ?? 0, value: totals?.value ?? 0 };
   }
 
   //record a sale - everything here is already resolved server-side. status
