@@ -2,13 +2,22 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { SaleFilter } from 'src/dtos/sale/sale.filter.dto';
+import { SaleStatsResponse } from 'src/dtos/sale/sale.stats.response.dto';
 import { SalesTrendFilter } from 'src/dtos/sale/sales.trend.filter.dto';
+import { VoidRequestFilter } from 'src/dtos/sale/void-request.filter.dto';
+import { CustomerInfo } from 'src/models/customer/customer-info.model';
 import { PaymentSplit } from 'src/models/sale/payment-split.model';
 import { SaleItem } from 'src/models/sale/sale-item.model';
+import { VoidRequest } from 'src/models/sale/void-request.model';
 import { ShopInfo } from 'src/models/shop/shop-info.model';
 import { UserInfo } from 'src/models/user/user-info.model';
 import { VendorInfo } from 'src/models/vendor/vendor-info.model';
-import { SalePaymentMethod, SaleStatus, SalesTrendGroupBy } from 'src/enums';
+import {
+  SalePaymentMethod,
+  SaleStatus,
+  SalesTrendGroupBy,
+  VoidRequestStatus,
+} from 'src/enums';
 import { Sale } from 'src/schemas/sale.schema';
 import { generateId, toPaginationInfo } from 'src/utils';
 
@@ -29,6 +38,9 @@ export type CreateSaleRecord = {
   changeGiven?: number;
   vendorId?: string;
   vendorInfoSnapshot?: VendorInfo;
+  customerId?: string;
+  customerInfoSnapshot?: CustomerInfo;
+  note?: string;
   momoNetwork?: string;
   momoPhone?: string;
   payments?: PaymentSplit[];
@@ -138,6 +150,7 @@ export class SaleRepository {
     const query: any = {};
     if (filter?.shopId) query.shopId = filter.shopId;
     if (filter?.cashierId) query.cashierId = filter.cashierId;
+    if (filter?.customerId) query.customerId = filter.customerId;
     if (filter?.paymentMethod) query.paymentMethod = filter.paymentMethod;
     if (filter?.status) query.status = filter.status;
 
@@ -152,6 +165,55 @@ export class SaleRepository {
     ]);
 
     return { results, totalCount };
+  }
+
+  // Aggregated metrics for a filtered view of sales - shop/cashier/
+  // customer/payment method/date range, same as list()'s own filters, but
+  // deliberately not status: Completed and Voided are always broken out
+  // together here rather than picking one, matching how the checkout
+  // page's today-only KPI cards already treat "revenue" vs "voided".
+  async getStats(filter: SaleFilter): Promise<SaleStatsResponse> {
+    const match: any = {};
+    if (filter?.shopId) match.shopId = filter.shopId;
+    if (filter?.cashierId) match.cashierId = filter.cashierId;
+    if (filter?.customerId) match.customerId = filter.customerId;
+    if (filter?.paymentMethod) match.paymentMethod = filter.paymentMethod;
+    if (filter?.startDate || filter?.endDate) {
+      match.createdAt = {};
+      if (filter.startDate) match.createdAt.$gte = new Date(filter.startDate);
+      if (filter.endDate) match.createdAt.$lte = new Date(filter.endDate);
+    }
+
+    const [byStatus, itemsResult] = await Promise.all([
+      this.saleRepository.aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: '$status',
+            total: { $sum: '$total' },
+            count: { $sum: 1 },
+          },
+        },
+      ]),
+      this.saleRepository.aggregate([
+        { $match: { ...match, status: SaleStatus.Completed } },
+        { $unwind: '$items' },
+        { $group: { _id: null, quantity: { $sum: '$items.quantity' } } },
+      ]),
+    ]);
+
+    const completed = byStatus.find((s) => s._id === SaleStatus.Completed);
+    const voided = byStatus.find((s) => s._id === SaleStatus.Voided);
+    const revenue = completed?.total ?? 0;
+    const transactionCount = completed?.count ?? 0;
+
+    return {
+      revenue,
+      transactionCount,
+      averageSale: transactionCount ? revenue / transactionCount : 0,
+      voidedCount: voided?.count ?? 0,
+      itemsSold: itemsResult[0]?.quantity ?? 0,
+    };
   }
 
   //value1/value2, grouped by the requested dimension - Hour/Day/Week/Month/
@@ -357,5 +419,125 @@ export class SaleRepository {
         { new: true },
       )
       .lean();
+  }
+
+  // Shared guard for starting a new void request (both createVoidRequest and
+  // finalizeInstantVoid): only a Completed sale with no already-Pending
+  // request can get one - this IS the concurrency lock, the same way
+  // finalize()'s {id, status: from} match is.
+  private voidableMatch(id: string) {
+    return {
+      id,
+      status: SaleStatus.Completed,
+      $or: [
+        { voidRequest: null },
+        { 'voidRequest.status': { $ne: VoidRequestStatus.Pending } },
+      ],
+    };
+  }
+
+  // Approval-required path - records the request only, status stays
+  // Completed until someone approves it.
+  async createVoidRequest(
+    id: string,
+    voidRequest: VoidRequest,
+  ): Promise<Sale | null> {
+    return await this.saleRepository
+      .findOneAndUpdate(
+        this.voidableMatch(id),
+        { $set: { voidRequest } },
+        { new: true },
+      )
+      .lean();
+  }
+
+  // Instant path - the request and the actual void happen in the same
+  // atomic update, self-approved (voidRequest.reviewedById === requestedById).
+  async finalizeInstantVoid(
+    id: string,
+    voidRequest: VoidRequest,
+  ): Promise<Sale | null> {
+    return await this.saleRepository
+      .findOneAndUpdate(
+        this.voidableMatch(id),
+        { $set: { status: SaleStatus.Voided, voidRequest } },
+        { new: true },
+      )
+      .lean();
+  }
+
+  // This is the moment a sale voided under RequiresApproval actually
+  // becomes Voided - the request itself (createVoidRequest) never touched
+  // status.
+  async approveVoidRequest(
+    id: string,
+    reviewedById: string,
+    reviewNotes: string | null,
+  ): Promise<Sale | null> {
+    return await this.saleRepository
+      .findOneAndUpdate(
+        {
+          id,
+          status: SaleStatus.Completed,
+          'voidRequest.status': VoidRequestStatus.Pending,
+        },
+        {
+          $set: {
+            status: SaleStatus.Voided,
+            'voidRequest.status': VoidRequestStatus.Approved,
+            'voidRequest.reviewedById': reviewedById,
+            'voidRequest.reviewedAt': new Date(),
+            'voidRequest.reviewNotes': reviewNotes,
+          },
+        },
+        { new: true },
+      )
+      .lean();
+  }
+
+  // The sale stays exactly as it was (Completed, fully valid) - only the
+  // request itself is marked Rejected, so a new one can be raised later.
+  async rejectVoidRequest(
+    id: string,
+    reviewedById: string,
+    reviewNotes: string | null,
+  ): Promise<Sale | null> {
+    return await this.saleRepository
+      .findOneAndUpdate(
+        { id, 'voidRequest.status': VoidRequestStatus.Pending },
+        {
+          $set: {
+            'voidRequest.status': VoidRequestStatus.Rejected,
+            'voidRequest.reviewedById': reviewedById,
+            'voidRequest.reviewedAt': new Date(),
+            'voidRequest.reviewNotes': reviewNotes,
+          },
+        },
+        { new: true },
+      )
+      .lean();
+  }
+
+  // Every sale that has ever had a void request, optionally narrowed to one
+  // shop/status - the "Void requests" queue page's data source.
+  async listVoidRequests(
+    filter: VoidRequestFilter,
+  ): Promise<{ results: Sale[]; totalCount: number }> {
+    const { page, pageSize } = toPaginationInfo(filter);
+    const query: any = { voidRequest: { $ne: null } };
+    if (filter?.shopId) query.shopId = filter.shopId;
+    if (filter?.status) query['voidRequest.status'] = filter.status;
+
+    const [results, totalCount] = await Promise.all([
+      this.saleRepository
+        .find(query)
+        .sort({ 'voidRequest.requestedAt': -1, _id: 1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize)
+        .lean(),
+      this.saleRepository.countDocuments(query),
+    ]);
+
+    return { results, totalCount };
   }
 }

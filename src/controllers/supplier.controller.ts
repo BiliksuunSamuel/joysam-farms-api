@@ -14,8 +14,12 @@ import { ApiParam, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 import { BaseFilter } from 'src/dtos/common/base.filter.dto';
 import { SupplierDropdownFilter } from 'src/dtos/supplier/supplier.dropdown.filter.dto';
+import { SupplierLedgerEntryFilter } from 'src/dtos/supplier/supplier-ledger-entry.filter.dto';
+import { SupplierPaymentRequest } from 'src/dtos/supplier/supplier.payment.request.dto';
 import { SupplierRequest } from 'src/dtos/supplier/supplier.request.dto';
 import { AuditLog } from 'src/decorators/audit-log.decorator';
+import { UserJwtDetails } from 'src/dtos/auth/user.jwt.details';
+import { AuthUser } from 'src/extensions/auth.extensions';
 import { AuthPermissions } from 'src/middlewares/auth.permissions';
 import { AuditLogInterceptor } from 'src/providers/audit-log.interceptor';
 import { SupplierService } from 'src/services/supplier.service';
@@ -53,6 +57,21 @@ export class SupplierController {
     response.status(res.code).send(res);
   }
 
+  @Get(':id/ledger')
+  @AuthPermissions('supplier.view')
+  @ApiParam({ name: 'id', type: String })
+  async getLedger(
+    @Param('id') id: string,
+    @Query() filter: SupplierLedgerEntryFilter,
+    @Res() response: Response,
+  ) {
+    const res = await this.supplierService.getLedger({
+      ...filter,
+      supplierId: id,
+    });
+    response.status(res.code).send(res);
+  }
+
   @Post()
   @AuthPermissions('supplier.create')
   @AuditLog('Supplier', 'Created')
@@ -80,6 +99,20 @@ export class SupplierController {
   @ApiParam({ name: 'id', type: String })
   async delete(@Param('id') id: string, @Res() response: Response) {
     const res = await this.supplierService.delete(id);
+    response.status(res.code).send(res);
+  }
+
+  @Post(':id/payments')
+  @AuthPermissions('supplier.payment.record')
+  @AuditLog('Supplier', 'PaymentRecorded')
+  @ApiParam({ name: 'id', type: String })
+  async recordPayment(
+    @Param('id') id: string,
+    @Body() request: SupplierPaymentRequest,
+    @AuthUser() user: UserJwtDetails,
+    @Res() response: Response,
+  ) {
+    const res = await this.supplierService.recordPayment(id, request, user.id);
     response.status(res.code).send(res);
   }
 }

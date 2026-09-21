@@ -11,6 +11,7 @@ import { InventoryRepository } from 'src/repositories/inventory.repository';
 import { SupplierRepository } from 'src/repositories/supplier.repository';
 import { SupplyRequestRepository } from 'src/repositories/supply-request.repository';
 import { SupplyRequest } from 'src/schemas/supply-request.schema';
+import { SupplierService } from 'src/services/supplier.service';
 import { toInventoryInfo, toPaginationInfo, toSupplierInfo } from 'src/utils';
 
 @Injectable()
@@ -20,6 +21,7 @@ export class SupplyRequestService {
     private readonly supplyRequestRepository: SupplyRequestRepository,
     private readonly supplierRepository: SupplierRepository,
     private readonly inventoryRepository: InventoryRepository,
+    private readonly supplierService: SupplierService,
   ) {}
 
   //get by id
@@ -152,6 +154,11 @@ export class SupplyRequestService {
         );
       }
 
+      // Also accumulates the total cost of this delivery (item costPrice x
+      // quantity, summed across every line) while we're already fetching
+      // each Inventory doc for the existence check - this becomes the
+      // single Bill posted to the supplier's wallet below.
+      let totalCost = 0;
       for (const item of supplyRequest.items) {
         const inventory = await this.inventoryRepository.getById(
           item.inventoryId,
@@ -162,6 +169,7 @@ export class SupplyRequestService {
             `${item.inventoryInfoSnapshot?.name ?? item.inventoryId} no longer exists in the warehouse catalog`,
           );
         }
+        totalCost += (inventory.costPrice ?? 0) * item.quantity;
       }
 
       for (const item of supplyRequest.items) {
@@ -170,6 +178,12 @@ export class SupplyRequestService {
           item.quantity,
         );
       }
+
+      await this.supplierService.postBill(
+        supplyRequest.supplierId,
+        totalCost,
+        id,
+      );
 
       const approved = await this.supplyRequestRepository.approve(
         id,

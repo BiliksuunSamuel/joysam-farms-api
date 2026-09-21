@@ -5,12 +5,18 @@ import {
   IsEnum,
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
+  Max,
   Min,
   ValidateIf,
 } from 'class-validator';
-import { LowStockThresholdMode } from 'src/enums';
+import {
+  DiscountLimitType,
+  LowStockThresholdMode,
+  VoidApprovalMode,
+} from 'src/enums';
 
 export class SettingsRequest {
   @ApiProperty()
@@ -123,6 +129,49 @@ export class SettingsRequest {
   })
   @IsString()
   checkoutDisabledMessage?: string;
+
+  // ---- Discounts ----
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsBoolean()
+  discountsEnabled?: boolean;
+
+  @ApiProperty({ required: false, enum: DiscountLimitType })
+  @ValidateIf((o: SettingsRequest) => o.discountsEnabled !== false)
+  @IsEnum(DiscountLimitType)
+  discountLimitType?: DiscountLimitType;
+
+  // Required when the cap is Percentage-based - a discount can't be capped
+  // by a percentage that was never actually set.
+  @ApiProperty({ required: false })
+  @ValidateIf(
+    (o: SettingsRequest) =>
+      o.discountsEnabled !== false &&
+      o.discountLimitType === DiscountLimitType.Percentage,
+  )
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  discountMaxPercentage?: number;
+
+  // Required when the cap is Flat-based, for the same reason.
+  @ApiProperty({ required: false })
+  @ValidateIf(
+    (o: SettingsRequest) =>
+      o.discountsEnabled !== false &&
+      o.discountLimitType === DiscountLimitType.Flat,
+  )
+  @IsNumber()
+  @Min(0)
+  discountMaxFlatAmount?: number;
+
+  // ---- Voiding ----
+
+  @ApiProperty({ required: false, enum: VoidApprovalMode })
+  @IsOptional()
+  @IsEnum(VoidApprovalMode)
+  voidApprovalMode?: VoidApprovalMode;
 
   // ---- Notifications ----
 

@@ -63,7 +63,7 @@ export class ShopInventoryRepository {
     shopId: string,
   ): Promise<{ categoryId: string; count: number }[]> {
     const results = await this.shopInventoryRepository.aggregate([
-      { $match: { shopId, status: ShopInventoryStatus.Active } },
+      { $match: { shopId, status: ShopInventoryStatus.Available } },
       {
         $lookup: {
           from: 'inventories',
@@ -76,7 +76,10 @@ export class ShopInventoryRepository {
       {
         $addFields: {
           categoryId: {
-            $ifNull: ['$inventory.categoryId', '$inventoryInfoSnapshot.categoryId'],
+            $ifNull: [
+              '$inventory.categoryId',
+              '$inventoryInfoSnapshot.categoryId',
+            ],
           },
         },
       },
@@ -165,7 +168,7 @@ export class ShopInventoryRepository {
             shopId,
             inventoryId,
             inventoryInfoSnapshot,
-            status: ShopInventoryStatus.Active,
+            status: ShopInventoryStatus.Available,
           },
         },
         { new: true, upsert: true },

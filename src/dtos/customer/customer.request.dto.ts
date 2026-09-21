@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsString } from 'class-validator';
+import { IsValidPhoneNumber } from 'src/decorators/is-valid-phone-number.decorator';
 
 export class CustomerRequest {
   @ApiProperty()
@@ -8,7 +9,7 @@ export class CustomerRequest {
   name: string;
 
   @ApiProperty()
+  @IsValidPhoneNumber()
   @IsNotEmpty()
-  @IsEmail()
-  email: string;
+  phone: string;
 }

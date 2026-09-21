@@ -3,17 +3,25 @@ import { ApiResponseDto } from 'src/dtos/common/api.response.dto';
 import { PagedResults } from 'src/dtos/common/paged.results.dto';
 import { SaleFilter } from 'src/dtos/sale/sale.filter.dto';
 import { SaleRequest } from 'src/dtos/sale/sale.request.dto';
+import { SaleStatsResponse } from 'src/dtos/sale/sale.stats.response.dto';
 import { SalesTrend } from 'src/dtos/sale/sales.trend.dto';
 import { SalesTrendFilter } from 'src/dtos/sale/sales.trend.filter.dto';
+import { VoidSaleRequest } from 'src/dtos/sale/void-sale.request.dto';
+import { ReviewVoidRequest } from 'src/dtos/sale/review-void.request.dto';
+import { VoidRequestFilter } from 'src/dtos/sale/void-request.filter.dto';
 import {
+  DiscountLimitType,
   LedgerSource,
   SalePaymentMethod,
   SaleStatus,
   SalesTrendGroupBy,
+  VoidApprovalMode,
+  VoidRequestStatus,
 } from 'src/enums';
 import { CommonResponses } from 'src/helper/common.responses.helper';
 import { PaymentSplit } from 'src/models/sale/payment-split.model';
 import { SaleItem } from 'src/models/sale/sale-item.model';
+import { VoidRequest } from 'src/models/sale/void-request.model';
 import { CategoryRepository } from 'src/repositories/category.repository';
 import { CounterRepository } from 'src/repositories/counter.repository';
 import { InventoryRepository } from 'src/repositories/inventory.repository';
@@ -26,11 +34,13 @@ import { UserRepository } from 'src/repositories/user.repository';
 import { Sale } from 'src/schemas/sale.schema';
 import { Shop } from 'src/schemas/shop.schema';
 import { Vendor } from 'src/schemas/vendor.schema';
+import { CustomerService } from 'src/services/customer.service';
 import { LedgerEntryService } from 'src/services/ledger-entry.service';
 import { PaymentTransactionService } from 'src/services/payment-transaction.service';
 import { VendorService } from 'src/services/vendor.service';
 import {
   resolveRequesterShopId,
+  toCustomerInfo,
   toInventoryInfo,
   toPaginationInfo,
   toShopInfo,
@@ -52,6 +62,7 @@ export class SaleService {
     private readonly counterRepository: CounterRepository,
     private readonly ledgerEntryService: LedgerEntryService,
     private readonly vendorService: VendorService,
+    private readonly customerService: CustomerService,
     private readonly paymentTransactionService: PaymentTransactionService,
     private readonly settingsRepository: SettingsRepository,
   ) {}
@@ -332,6 +343,202 @@ export class SaleService {
     }
   }
 
+  //aggregated metrics for the same filtered view list() would return -
+  //revenue/transactions/average/voided/units, computed server-side rather
+  //than summed from whatever page of results happens to be on screen
+  async getStats(
+    filter: SaleFilter,
+    requesterId: string,
+  ): Promise<ApiResponseDto<SaleStatsResponse>> {
+    try {
+      const shopId = await resolveRequesterShopId(
+        requesterId,
+        this.userRepository,
+      );
+      const scoped = shopId ? { ...filter, shopId } : filter;
+      const stats = await this.saleRepository.getStats(scoped);
+      return CommonResponses.OkResponse<SaleStatsResponse>(stats);
+    } catch (error) {
+      this.logger.error(
+        'an error occurred while getting sale stats',
+        filter,
+        error,
+      );
+      return CommonResponses.InternalServerErrorResponse<SaleStatsResponse>(
+        'An error occurred while getting sale stats',
+      );
+    }
+  }
+
+  // Restores every line of a voided sale back into the shop's stock - the
+  // exact mirror of create()'s deduction (a positive delta here, negative
+  // there) and the same snippet PaymentTransactionService.voidPendingSale
+  // already uses for the abandoned-Digital-payment auto-void path.
+  private async restoreStock(sale: Sale): Promise<void> {
+    for (const item of sale.items) {
+      await this.shopInventoryRepository.incrementQuantity(
+        sale.shopId,
+        item.inventoryId,
+        item.quantity,
+        item.inventoryInfoSnapshot,
+      );
+    }
+  }
+
+  //request a void on a completed sale - either takes effect immediately
+  //(Settings.voidApprovalMode Instant, self-approved) or leaves the sale
+  //Completed with a Pending voidRequest until someone with
+  //sale.void.approve reviews it (RequiresApproval, the default)
+  async requestVoid(
+    id: string,
+    requesterId: string,
+    request: VoidSaleRequest,
+  ): Promise<ApiResponseDto<Sale>> {
+    try {
+      const existing = await this.saleRepository.getById(id);
+      if (!existing) {
+        return CommonResponses.NotFoundResponse<Sale>('Sale not found');
+      }
+
+      const settings = await this.settingsRepository.get();
+      const instant = settings?.voidApprovalMode === VoidApprovalMode.Instant;
+      const now = new Date();
+      const voidRequest: VoidRequest = {
+        status: instant
+          ? VoidRequestStatus.Approved
+          : VoidRequestStatus.Pending,
+        reason: request.reason,
+        requestedById: requesterId,
+        requestedAt: now,
+        reviewedById: instant ? requesterId : null,
+        reviewedAt: instant ? now : null,
+        reviewNotes: null,
+      };
+
+      const sale = instant
+        ? await this.saleRepository.finalizeInstantVoid(id, voidRequest)
+        : await this.saleRepository.createVoidRequest(id, voidRequest);
+
+      if (!sale) {
+        return CommonResponses.ConflictResponse<Sale>(
+          'This sale can no longer be voided - it may already be voided, or already have a pending void request.',
+        );
+      }
+
+      if (instant) {
+        await this.restoreStock(sale);
+      }
+
+      return CommonResponses.OkResponse<Sale>(sale);
+    } catch (error) {
+      this.logger.error(
+        'an error occurred while requesting a sale void',
+        { id, request },
+        error,
+      );
+      return CommonResponses.InternalServerErrorResponse<Sale>(
+        'An error occurred while requesting a sale void',
+      );
+    }
+  }
+
+  //approve a pending void request - this is the moment the sale actually
+  //becomes Voided under RequiresApproval, and stock gets restored
+  async approveVoid(
+    id: string,
+    reviewerId: string,
+    request: ReviewVoidRequest,
+  ): Promise<ApiResponseDto<Sale>> {
+    try {
+      const sale = await this.saleRepository.approveVoidRequest(
+        id,
+        reviewerId,
+        request?.reviewNotes || null,
+      );
+      if (!sale) {
+        return CommonResponses.ConflictResponse<Sale>(
+          'This sale has no pending void request to approve.',
+        );
+      }
+      await this.restoreStock(sale);
+      return CommonResponses.OkResponse<Sale>(sale);
+    } catch (error) {
+      this.logger.error(
+        'an error occurred while approving a sale void request',
+        { id, request },
+        error,
+      );
+      return CommonResponses.InternalServerErrorResponse<Sale>(
+        'An error occurred while approving a sale void request',
+      );
+    }
+  }
+
+  //reject a pending void request - the sale stays exactly as it was
+  //(Completed, stock untouched); a new request can be raised later
+  async rejectVoid(
+    id: string,
+    reviewerId: string,
+    request: ReviewVoidRequest,
+  ): Promise<ApiResponseDto<Sale>> {
+    try {
+      const sale = await this.saleRepository.rejectVoidRequest(
+        id,
+        reviewerId,
+        request?.reviewNotes || null,
+      );
+      if (!sale) {
+        return CommonResponses.ConflictResponse<Sale>(
+          'This sale has no pending void request to reject.',
+        );
+      }
+      return CommonResponses.OkResponse<Sale>(sale);
+    } catch (error) {
+      this.logger.error(
+        'an error occurred while rejecting a sale void request',
+        { id, request },
+        error,
+      );
+      return CommonResponses.InternalServerErrorResponse<Sale>(
+        'An error occurred while rejecting a sale void request',
+      );
+    }
+  }
+
+  //every sale that has ever had a void request, shop-scoped the same way
+  //list()/getStats() are - the "Void requests" queue page's data source
+  async listVoidRequests(
+    filter: VoidRequestFilter,
+    requesterId: string,
+  ): Promise<ApiResponseDto<PagedResults<Sale>>> {
+    try {
+      const { page, pageSize } = toPaginationInfo(filter);
+      const shopId = await resolveRequesterShopId(
+        requesterId,
+        this.userRepository,
+      );
+      const scoped = shopId ? { ...filter, shopId } : filter;
+      const { results, totalCount } =
+        await this.saleRepository.listVoidRequests(scoped);
+      return CommonResponses.OkResponse<PagedResults<Sale>>({
+        results,
+        totalCount,
+        totalPages: Math.ceil(totalCount / pageSize),
+        page,
+        pageSize,
+      });
+    } catch (error) {
+      this.logger.error(
+        'an error occurred while listing sale void requests',
+        filter,
+        error,
+      );
+      return CommonResponses.InternalServerErrorResponse<PagedResults<Sale>>(
+        'An error occurred while listing sale void requests',
+      );
+    }
+  }
+
   //ring up a sale: validates stock, deducts it, posts revenue to the
   //shop's ledger and records the sale - all atomically from the caller's
   //point of view (no pending state, unlike a Transfer)
@@ -345,8 +552,12 @@ export class SaleService {
         return CommonResponses.NotFoundResponse<Sale>('Shop not found');
       }
 
+      // Only ever block on an *explicit* false - a Settings document saved
+      // before these fields existed reads them back as undefined, which
+      // must mean "not configured yet", not "off". Applies to every
+      // Settings-driven gate in this method.
       const settings = await this.settingsRepository.get();
-      if (settings && !settings.checkoutEnabled) {
+      if (settings?.checkoutEnabled === false) {
         return CommonResponses.BadRequestResponse<Sale>(
           undefined,
           settings.checkoutDisabledMessage ||
@@ -397,6 +608,30 @@ export class SaleService {
       const subtotal =
         Math.round(items.reduce((sum, i) => sum + i.lineTotal, 0) * 100) / 100;
       const discount = Math.min(Math.max(request.discount ?? 0, 0), subtotal);
+
+      if (discount > 0) {
+        if (settings?.discountsEnabled === false) {
+          return CommonResponses.BadRequestResponse<Sale>(
+            undefined,
+            'Discounts are currently turned off',
+          );
+        }
+        const limitType =
+          settings?.discountLimitType ?? DiscountLimitType.Percentage;
+        const maxDiscount =
+          limitType === DiscountLimitType.Flat
+            ? (settings?.discountMaxFlatAmount ?? subtotal)
+            : (subtotal * (settings?.discountMaxPercentage ?? 100)) / 100;
+        if (discount > maxDiscount) {
+          return CommonResponses.BadRequestResponse<Sale>(
+            undefined,
+            limitType === DiscountLimitType.Flat
+              ? `Discount can't be more than GH₵${maxDiscount.toFixed(2)}`
+              : `Discount can't be more than ${settings?.discountMaxPercentage ?? 100}% of the subtotal`,
+          );
+        }
+      }
+
       const total = Math.round((subtotal - discount) * 100) / 100;
 
       const isCredit = request.paymentMethod === SalePaymentMethod.Credit;
@@ -416,7 +651,7 @@ export class SaleService {
 
       switch (request.paymentMethod) {
         case SalePaymentMethod.Credit: {
-          if (!shop.allowCreditSales) {
+          if (shop.allowCreditSales === false) {
             return CommonResponses.BadRequestResponse<Sale>(
               undefined,
               `${shop.name} doesn't accept credit sales`,
@@ -542,6 +777,14 @@ export class SaleService {
         }
       }
 
+      // Orthogonal to paymentMethod - required on every sale, not just
+      // Credit (that's vendorId/vendor above, a distinct concept for buyers
+      // billed on account).
+      const customer = await this.customerService.findOrCreateForSale({
+        name: request.customerName,
+        phone: request.customerPhone,
+      });
+
       const cashier = await this.userRepository.getById(cashierId);
       if (!cashier) {
         return CommonResponses.NotFoundResponse<Sale>('Cashier not found');
@@ -578,6 +821,9 @@ export class SaleService {
         changeGiven,
         vendorId: vendor?.id,
         vendorInfoSnapshot: vendor ? toVendorInfo(vendor) : undefined,
+        customerId: customer.id,
+        customerInfoSnapshot: toCustomerInfo(customer),
+        note: request.note || undefined,
         momoNetwork,
         momoPhone,
         payments,

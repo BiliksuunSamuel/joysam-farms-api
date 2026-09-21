@@ -13,6 +13,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { SalePaymentMethod } from 'src/enums';
+import { IsValidPhoneNumber } from 'src/decorators/is-valid-phone-number.decorator';
 import { PaymentSplitRequest } from './payment-split.request.dto';
 import { SaleItemRequest } from './sale.item.request.dto';
 
@@ -86,4 +87,21 @@ export class SaleRequest {
   @ValidateNested({ each: true })
   @Type(() => PaymentSplitRequest)
   payments?: PaymentSplitRequest[];
+
+  // Any payment method - required on every sale. Found-or-created by phone -
+  // see CustomerService.findOrCreateForSale.
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  customerName: string;
+
+  @ApiProperty()
+  @IsValidPhoneNumber()
+  customerPhone: string;
+
+  // Any payment method - a free-text note about this specific sale.
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  note?: string;
 }

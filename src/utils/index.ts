@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { UserResponse } from 'src/dtos/user/user.response.dto';
+import { CustomerInfo } from 'src/models/customer/customer-info.model';
 import { InventoryInfo } from 'src/models/inventory/inventory-info.model';
 import { ShopInfo } from 'src/models/shop/shop-info.model';
 import { SupplierInfo } from 'src/models/supplier/supplier-info.model';
@@ -75,6 +76,15 @@ export function toVendorInfo(vendor): VendorInfo {
     id: vendor.id,
     name: vendor.name,
     contactName: vendor.contactName,
+  };
+}
+
+//build a point-in-time snapshot of a customer, for embedding on other documents
+export function toCustomerInfo(customer): CustomerInfo {
+  return {
+    id: customer.id,
+    name: customer.name,
+    phone: customer.phone,
   };
 }
 
@@ -179,7 +189,10 @@ export function resolveDayWeekMonthRange(
   return { start, end };
 }
 
-export function startOfDayWeekMonthBucket(date: Date, groupBy: DayWeekMonthGroupBy): Date {
+export function startOfDayWeekMonthBucket(
+  date: Date,
+  groupBy: DayWeekMonthGroupBy,
+): Date {
   const d = new Date(date);
   switch (groupBy) {
     case 'Week': {
@@ -199,7 +212,10 @@ export function startOfDayWeekMonthBucket(date: Date, groupBy: DayWeekMonthGroup
   }
 }
 
-export function advanceDayWeekMonthBucket(date: Date, groupBy: DayWeekMonthGroupBy): Date {
+export function advanceDayWeekMonthBucket(
+  date: Date,
+  groupBy: DayWeekMonthGroupBy,
+): Date {
   const d = new Date(date);
   switch (groupBy) {
     case 'Week':
@@ -218,7 +234,10 @@ export function advanceDayWeekMonthBucket(date: Date, groupBy: DayWeekMonthGroup
 //must match the $dateToString format used for the same groupBy in the
 //repository's aggregation exactly, since this is how gap-filled buckets are
 //matched up against real aggregation results
-export function dayWeekMonthBucketKey(date: Date, groupBy: DayWeekMonthGroupBy): string {
+export function dayWeekMonthBucketKey(
+  date: Date,
+  groupBy: DayWeekMonthGroupBy,
+): string {
   switch (groupBy) {
     case 'Week':
       return isoWeekKey(date);
@@ -243,7 +262,9 @@ export function startOfUTCDay(date: Date): Date {
 //first/last days of a calendar year belong to a week in the adjacent ISO
 //year.
 export function isoWeekKey(date: Date): string {
-  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const d = new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+  );
   const dayNum = (d.getUTCDay() + 6) % 7; // Monday = 0
   d.setUTCDate(d.getUTCDate() - dayNum + 3); // Thursday of this ISO week
   const isoYear = d.getUTCFullYear();
@@ -251,7 +272,8 @@ export function isoWeekKey(date: Date): string {
   const jan4DayNum = (jan4.getUTCDay() + 6) % 7;
   const week1Monday = new Date(jan4);
   week1Monday.setUTCDate(jan4.getUTCDate() - jan4DayNum);
-  const weekNum = Math.round((d.getTime() - week1Monday.getTime()) / (7 * 86_400_000)) + 1;
+  const weekNum =
+    Math.round((d.getTime() - week1Monday.getTime()) / (7 * 86_400_000)) + 1;
   return `${isoYear}-W${String(weekNum).padStart(2, '0')}`;
 }
 

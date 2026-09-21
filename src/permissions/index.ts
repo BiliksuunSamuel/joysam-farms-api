@@ -23,7 +23,11 @@ export const PERMISSION_FEATURES: PermissionFeature[] = [
     feature: 'Shops',
     description: 'Shop locations',
     permissions: [
-      { key: 'shop.view', action: 'View', description: 'See shops and their details' },
+      {
+        key: 'shop.view',
+        action: 'View',
+        description: 'See shops and their details',
+      },
       { key: 'shop.create', action: 'Create', description: 'Create a shop' },
       { key: 'shop.update', action: 'Update', description: 'Edit a shop' },
       { key: 'shop.delete', action: 'Delete', description: 'Remove a shop' },
@@ -100,6 +104,22 @@ export const PERMISSION_FEATURES: PermissionFeature[] = [
         action: 'View',
         description: 'See Paystack payment transactions and their trend',
       },
+      {
+        key: 'sale.void.request',
+        action: 'Void',
+        description:
+          'Void a completed sale, instantly or by requesting approval depending on settings',
+      },
+      {
+        key: 'sale.void.approve',
+        action: 'Approve void',
+        description: 'Approve a pending sale-void request',
+      },
+      {
+        key: 'sale.void.reject',
+        action: 'Reject void',
+        description: 'Reject a pending sale-void request',
+      },
     ],
   },
   {
@@ -158,10 +178,31 @@ export const PERMISSION_FEATURES: PermissionFeature[] = [
     feature: 'Suppliers',
     description: 'External suppliers the warehouse buys stock from',
     permissions: [
-      { key: 'supplier.view', action: 'View', description: 'See suppliers and their details' },
-      { key: 'supplier.create', action: 'Create', description: 'Add a supplier' },
-      { key: 'supplier.update', action: 'Update', description: 'Edit a supplier' },
-      { key: 'supplier.delete', action: 'Delete', description: 'Remove a supplier' },
+      {
+        key: 'supplier.view',
+        action: 'View',
+        description: 'See suppliers and their details',
+      },
+      {
+        key: 'supplier.create',
+        action: 'Create',
+        description: 'Add a supplier',
+      },
+      {
+        key: 'supplier.update',
+        action: 'Update',
+        description: 'Edit a supplier',
+      },
+      {
+        key: 'supplier.delete',
+        action: 'Delete',
+        description: 'Remove a supplier',
+      },
+      {
+        key: 'supplier.payment.record',
+        action: 'Record payment',
+        description: "Record a payment against a supplier's balance",
+      },
     ],
   },
   {
@@ -282,7 +323,7 @@ export const PERMISSION_FEATURES: PermissionFeature[] = [
       {
         key: 'vendor.view',
         action: 'View',
-        description: "See vendors, their credit accounts and ledgers",
+        description: 'See vendors, their credit accounts and ledgers',
       },
       {
         key: 'vendor.create',
@@ -298,6 +339,27 @@ export const PERMISSION_FEATURES: PermissionFeature[] = [
         key: 'vendor.payment.record',
         action: 'Record payment',
         description: 'Record a payment against a vendor’s balance',
+      },
+    ],
+  },
+  {
+    feature: 'Customers',
+    description: 'Retail customers captured at checkout',
+    permissions: [
+      {
+        key: 'customer.view',
+        action: 'View',
+        description: 'See customers and their purchase history',
+      },
+      {
+        key: 'customer.create',
+        action: 'Create',
+        description: 'Register a new customer',
+      },
+      {
+        key: 'customer.update',
+        action: 'Update',
+        description: "Edit a customer's profile",
       },
     ],
   },
@@ -350,7 +412,7 @@ export const PERMISSION_FEATURES: PermissionFeature[] = [
       {
         key: 'user.update-permissions',
         action: 'Update permissions',
-        description: "Change what an employee is allowed to do",
+        description: 'Change what an employee is allowed to do',
       },
       {
         key: 'user.reset-password',
@@ -368,7 +430,11 @@ export const PERMISSION_FEATURES: PermissionFeature[] = [
     feature: 'Roles & permissions',
     description: 'Access control',
     permissions: [
-      { key: 'role.view', action: 'View', description: 'See roles and their details' },
+      {
+        key: 'role.view',
+        action: 'View',
+        description: 'See roles and their details',
+      },
       { key: 'role.create', action: 'Create', description: 'Create a role' },
       { key: 'role.update', action: 'Update', description: 'Edit a role' },
       { key: 'role.delete', action: 'Delete', description: 'Remove a role' },
@@ -387,22 +453,6 @@ export const PERMISSION_FEATURES: PermissionFeature[] = [
         key: 'settings.update',
         action: 'Update',
         description: 'Edit business settings',
-      },
-    ],
-  },
-  {
-    feature: 'Customers',
-    description: 'Example customer records',
-    permissions: [
-      {
-        key: 'customer.view',
-        action: 'View',
-        description: 'See customer records',
-      },
-      {
-        key: 'customer.delete',
-        action: 'Delete',
-        description: 'Remove a customer record',
       },
     ],
   },

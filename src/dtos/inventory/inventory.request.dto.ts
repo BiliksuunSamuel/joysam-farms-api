@@ -7,7 +7,7 @@ import {
   IsString,
   Min,
 } from 'class-validator';
-import { Unit } from 'src/enums';
+import { InventoryStatus, Unit } from 'src/enums';
 
 // No serialNumber/barcode here - both are generated server-side.
 export class InventoryRequest {
@@ -54,4 +54,9 @@ export class InventoryRequest {
   @IsNumber()
   @Min(0)
   reorderLevel?: number;
+
+  @ApiProperty({ enum: InventoryStatus, required: false })
+  @IsOptional()
+  @IsEnum(InventoryStatus)
+  status?: InventoryStatus;
 }

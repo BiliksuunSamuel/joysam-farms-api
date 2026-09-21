@@ -42,9 +42,14 @@ export enum Unit {
   Basket = 'Basket',
 }
 
+export enum InventoryStatus {
+  Available = 'Available',
+  Unavailable = 'Unavailable',
+}
+
 export enum ShopInventoryStatus {
-  Active = 'Active',
-  Inactive = 'Inactive',
+  Available = 'Available',
+  Unavailable = 'Unavailable',
 }
 
 export enum TransferStatus {
@@ -98,6 +103,7 @@ export enum LedgerSource {
   Expense = 'Expense',
   Adjustment = 'Adjustment',
   VendorPayment = 'VendorPayment',
+  SupplierPayment = 'SupplierPayment',
 }
 
 export enum SalePaymentMethod {
@@ -127,6 +133,21 @@ export enum SaleStatus {
   Pending = 'Pending',
   Completed = 'Completed',
   Voided = 'Voided',
+}
+
+// A manual void request on a Completed sale - see Sale.voidRequest. Distinct
+// from SaleStatus.Voided itself: a sale only actually transitions to Voided
+// once its void request is Approved (immediately, in Instant mode - see
+// VoidApprovalMode - or after a reviewer approves it).
+export enum VoidRequestStatus {
+  Pending = 'Pending',
+  Approved = 'Approved',
+  Rejected = 'Rejected',
+}
+
+export enum VoidApprovalMode {
+  Instant = 'Instant',
+  RequiresApproval = 'RequiresApproval',
 }
 
 export enum PaymentTransactionStatus {
@@ -213,6 +234,22 @@ export enum VendorPaymentMethod {
   BankTransfer = 'BankTransfer',
 }
 
+// Bill always increases what we owe a supplier (goods received into the
+// warehouse); Payment always decreases it. Adjustment is the one case that
+// can go either way (see SupplierLedgerEntry.amount). Deliberately not
+// "Charge"/"Debit"/"Credit" - same reasoning as VendorLedgerEntryType.
+export enum SupplierLedgerEntryType {
+  Bill = 'Bill',
+  Payment = 'Payment',
+  Adjustment = 'Adjustment',
+}
+
+export enum SupplierPaymentMethod {
+  Cash = 'Cash',
+  MobileMoney = 'MobileMoney',
+  BankTransfer = 'BankTransfer',
+}
+
 // How Settings.lowStockThresholdQuantity/lowStockThresholdDays should be
 // read - a fixed unit count, or a projected days-of-cover based on recent
 // sales - see InventoryUtilsService.computeStockHealth for where this is
@@ -220,4 +257,11 @@ export enum VendorPaymentMethod {
 export enum LowStockThresholdMode {
   FixedQuantity = 'FixedQuantity',
   DaysOfCover = 'DaysOfCover',
+}
+
+// How Settings.discountMaxFlatAmount/discountMaxPercentage caps a
+// checkout discount - see SaleService.create for where this is enforced.
+export enum DiscountLimitType {
+  Flat = 'Flat',
+  Percentage = 'Percentage',
 }

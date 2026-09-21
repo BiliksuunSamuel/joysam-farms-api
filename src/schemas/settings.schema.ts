@@ -1,7 +1,11 @@
 import { Prop, Schema } from '@nestjs/mongoose';
 import { ApiProperty } from '@nestjs/swagger';
 import { BaseSchema } from '.';
-import { LowStockThresholdMode } from 'src/enums';
+import {
+  DiscountLimitType,
+  LowStockThresholdMode,
+  VoidApprovalMode,
+} from 'src/enums';
 import { UserInfo } from 'src/models/user/user-info.model';
 
 // A singleton - there is only ever one Settings document for the whole
@@ -112,6 +116,54 @@ export class Settings extends BaseSchema {
   @Prop({ type: String, default: null })
   @ApiProperty()
   checkoutDisabledMessage: string | null;
+
+  // ---- Discounts ----
+
+  // Whether checkout can apply a discount at all - checked in
+  // SaleService.create alongside checkoutEnabled. When false, any
+  // requested discount is rejected regardless of what the client sends.
+  @Prop({ default: true })
+  @ApiProperty()
+  discountsEnabled: boolean;
+
+  // Which of the two caps below is enforced while discountsEnabled is true.
+  @Prop({
+    type: String,
+    enum: DiscountLimitType,
+    default: DiscountLimitType.Percentage,
+  })
+  @ApiProperty({ enum: DiscountLimitType })
+  discountLimitType: DiscountLimitType;
+
+  // 0-100. Only enforced when discountLimitType is Percentage. Defaults to
+  // 100 - the same "can't exceed the subtotal" ceiling checkout already had
+  // before this setting existed, so a fresh install behaves the same as
+  // today until a manager tightens it.
+  @Prop({ default: 100 })
+  @ApiProperty()
+  discountMaxPercentage: number;
+
+  // A currency amount. Only enforced when discountLimitType is Flat - null
+  // until a manager configures one.
+  @Prop({ type: Number, default: null })
+  @ApiProperty()
+  discountMaxFlatAmount: number | null;
+
+  // ---- Voiding ----
+
+  // How a completed sale's void request (see Sale.voidRequest) takes
+  // effect - checked in SaleService.requestVoid. Instant: the requester's
+  // own request immediately voids the sale (self-approved). RequiresApproval:
+  // the sale stays Completed until someone with sale.void.approve reviews
+  // it. Defaults to the more conservative RequiresApproval, since this is a
+  // brand-new capability with no prior "how voiding used to work" to match.
+  @Prop({
+    type: String,
+    enum: VoidApprovalMode,
+    default: VoidApprovalMode.RequiresApproval,
+  })
+  @ApiProperty({ enum: VoidApprovalMode })
+  voidApprovalMode: VoidApprovalMode;
 
   // ---- Notifications ----
   // Preferences only - nothing sends an email or an in-app notification yet.

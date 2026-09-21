@@ -28,7 +28,7 @@ export class ShopInventory extends BaseSchema {
   @Prop({
     type: String,
     enum: ShopInventoryStatus,
-    default: ShopInventoryStatus.Active,
+    default: ShopInventoryStatus.Available,
   })
   @ApiProperty({ enum: ShopInventoryStatus })
   status: ShopInventoryStatus;

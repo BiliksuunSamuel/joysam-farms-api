@@ -14,6 +14,11 @@ export class SaleFilter extends BaseFilter {
   @IsString()
   cashierId?: string;
 
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  customerId?: string;
+
   @ApiProperty({ enum: SalePaymentMethod, required: false })
   @IsOptional()
   @IsEnum(SalePaymentMethod)

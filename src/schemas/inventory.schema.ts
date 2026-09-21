@@ -1,7 +1,7 @@
 import { Prop, Schema } from '@nestjs/mongoose';
 import { ApiProperty } from '@nestjs/swagger';
 import { BaseSchema } from '.';
-import { Unit } from 'src/enums';
+import { InventoryStatus, Unit } from 'src/enums';
 
 @Schema()
 export class Inventory extends BaseSchema {
@@ -44,4 +44,12 @@ export class Inventory extends BaseSchema {
   @Prop({ required: true, unique: true })
   @ApiProperty()
   barcode: string;
+
+  @Prop({
+    type: String,
+    enum: InventoryStatus,
+    default: InventoryStatus.Available,
+  })
+  @ApiProperty({ enum: InventoryStatus })
+  status: InventoryStatus;
 }
