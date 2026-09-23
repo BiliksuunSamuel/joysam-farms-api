@@ -14,6 +14,7 @@ import { CategoryRepository } from 'src/repositories/category.repository';
 import { InventoryRepository } from 'src/repositories/inventory.repository';
 import { SaleRepository } from 'src/repositories/sale.repository';
 import { SettingsRepository } from 'src/repositories/settings.repository';
+import { SupplierRepository } from 'src/repositories/supplier.repository';
 import { Inventory } from 'src/schemas/inventory.schema';
 import { Settings } from 'src/schemas/settings.schema';
 import { LowStockThresholdMode } from 'src/enums';
@@ -21,7 +22,8 @@ import {
   InventoryUtilsService,
   VELOCITY_WINDOW_DAYS,
 } from 'src/services/inventory-utils.service';
-import { toPaginationInfo } from 'src/utils';
+import { SupplierService } from 'src/services/supplier.service';
+import { toInventoryInfo, toPaginationInfo } from 'src/utils';
 
 const TEMPLATE_COLUMNS = [
   { header: 'Name*', key: 'name', width: 28 },
@@ -50,6 +52,8 @@ export class InventoryService {
     private readonly categoryRepository: CategoryRepository,
     private readonly settingsRepository: SettingsRepository,
     private readonly saleRepository: SaleRepository,
+    private readonly supplierRepository: SupplierRepository,
+    private readonly supplierService: SupplierService,
   ) {}
 
   // Settings once, and only the items on this page's daily sales velocity -
@@ -243,7 +247,38 @@ export class InventoryService {
     request: InventoryRequest,
   ): Promise<ApiResponseDto<InventoryResponse>> {
     try {
-      const inventory = await this.inventoryRepository.create(request);
+      const { supplierId, ...fields } = request;
+      if (supplierId && !(await this.supplierRepository.getById(supplierId))) {
+        return CommonResponses.NotFoundResponse<InventoryResponse>(
+          'Supplier not found',
+        );
+      }
+
+      const inventory = await this.inventoryRepository.create(fields);
+
+      // The initial quantity, if sourced from a supplier, is a delivery -
+      // same bookkeeping approving a SupplyRequest does (see
+      // SupplyRequestService.approve), just for a brand-new item instead of
+      // an existing one.
+      if (supplierId && inventory.quantity > 0) {
+        const expiryDate = request.expiryDate
+          ? new Date(request.expiryDate)
+          : null;
+        await this.supplierService.postInventoryDelivery(
+          supplierId,
+          inventory.id,
+          toInventoryInfo(inventory),
+          inventory.quantity,
+          expiryDate,
+          inventory.id,
+        );
+        await this.supplierService.postBill(
+          supplierId,
+          (inventory.costPrice ?? 0) * inventory.quantity,
+          inventory.id,
+        );
+      }
+
       const category = await this.categoryRepository.getById(
         inventory.categoryId,
       );

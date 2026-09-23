@@ -56,7 +56,7 @@ export class SaleController {
 
   // Registered before ':id' - otherwise "stats" would be captured as an id.
   @Get('stats')
-  @AuthPermissions('sale.view')
+  @AuthPermissions('sale.view', 'sale.financials.view')
   async getStats(
     @Query() filter: SaleFilter,
     @AuthUser() user: UserJwtDetails,

@@ -43,7 +43,7 @@ export class ShopInventoryController {
   }
 
   @Get('breakdown')
-  @AuthPermissions('shop.inventory.view')
+  @AuthPermissions('shop.inventory.view', 'shop.financials.view')
   async getBreakdown(
     @Query() filter: ShopInventoryBreakdownFilter,
     @AuthUser() user: UserJwtDetails,

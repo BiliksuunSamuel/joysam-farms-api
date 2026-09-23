@@ -23,4 +23,11 @@ export class SupplyRequestItem {
   @Prop({ required: true })
   @ApiProperty()
   quantity: number;
+
+  // This delivery's expiry, if the item is perishable - becomes the
+  // Inventory's own expiryDate the moment this request is approved (see
+  // SupplyRequestService.approve).
+  @Prop({ default: null })
+  @ApiProperty()
+  expiryDate: Date;
 }

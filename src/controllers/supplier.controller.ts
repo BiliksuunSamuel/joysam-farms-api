@@ -15,6 +15,7 @@ import { Response } from 'express';
 import { BaseFilter } from 'src/dtos/common/base.filter.dto';
 import { SupplierDropdownFilter } from 'src/dtos/supplier/supplier.dropdown.filter.dto';
 import { SupplierLedgerEntryFilter } from 'src/dtos/supplier/supplier-ledger-entry.filter.dto';
+import { SupplierInventoryLedgerEntryFilter } from 'src/dtos/supplier/supplier-inventory-ledger-entry.filter.dto';
 import { SupplierPaymentRequest } from 'src/dtos/supplier/supplier.payment.request.dto';
 import { SupplierRequest } from 'src/dtos/supplier/supplier.request.dto';
 import { AuditLog } from 'src/decorators/audit-log.decorator';
@@ -66,6 +67,21 @@ export class SupplierController {
     @Res() response: Response,
   ) {
     const res = await this.supplierService.getLedger({
+      ...filter,
+      supplierId: id,
+    });
+    response.status(res.code).send(res);
+  }
+
+  @Get(':id/inventory-ledger')
+  @AuthPermissions('supplier.view')
+  @ApiParam({ name: 'id', type: String })
+  async getInventoryLedger(
+    @Param('id') id: string,
+    @Query() filter: SupplierInventoryLedgerEntryFilter,
+    @Res() response: Response,
+  ) {
+    const res = await this.supplierService.getInventoryLedger({
       ...filter,
       supplierId: id,
     });

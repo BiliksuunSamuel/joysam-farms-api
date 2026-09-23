@@ -139,6 +139,27 @@ export class InventoryRepository {
       .lean();
   }
 
+  //a supply request line landing in the warehouse - grows quantity by the
+  //delivered amount and, if this delivery carries an expiry, overwrites the
+  //item's own expiryDate with it (the most recently received batch's date,
+  //not tracked per-batch - see Inventory.expiryDate)
+  async receiveStock(
+    id: string,
+    quantity: number,
+    expiryDate?: Date,
+  ): Promise<Inventory> {
+    return await this.inventoryRepository
+      .findOneAndUpdate(
+        { id },
+        {
+          $inc: { quantity },
+          ...(expiryDate ? { $set: { expiryDate } } : {}),
+        },
+        { new: true },
+      )
+      .lean();
+  }
+
   private async generateUniqueSerialNumber(): Promise<string> {
     let serialNumber = this.inventoryUtilsService.generateSerialNumber();
     while (await this.inventoryRepository.exists({ serialNumber })) {

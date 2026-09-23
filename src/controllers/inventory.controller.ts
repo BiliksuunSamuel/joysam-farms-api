@@ -51,7 +51,7 @@ export class InventoryController {
 
   // Registered before ':id' - otherwise "breakdown" would be captured as an id.
   @Get('breakdown')
-  @AuthPermissions('inventory.view')
+  @AuthPermissions('inventory.view', 'inventory.financials.view')
   async getStockBreakdown(
     @Query() filter: StockBreakdownFilter,
     @Res() response: Response,

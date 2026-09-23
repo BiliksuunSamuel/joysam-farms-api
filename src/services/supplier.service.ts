@@ -5,17 +5,21 @@ import { DropdownOption } from 'src/dtos/common/dropdown.option.dto';
 import { PagedResults } from 'src/dtos/common/paged.results.dto';
 import { SupplierDropdownFilter } from 'src/dtos/supplier/supplier.dropdown.filter.dto';
 import { SupplierLedgerEntryFilter } from 'src/dtos/supplier/supplier-ledger-entry.filter.dto';
+import { SupplierInventoryLedgerEntryFilter } from 'src/dtos/supplier/supplier-inventory-ledger-entry.filter.dto';
 import { SupplierPaymentRequest } from 'src/dtos/supplier/supplier.payment.request.dto';
 import { SupplierRequest } from 'src/dtos/supplier/supplier.request.dto';
 import { SupplierResponse } from 'src/dtos/supplier/supplier.response.dto';
 import { LedgerSource, SupplierLedgerEntryType } from 'src/enums';
 import { CommonResponses } from 'src/helper/common.responses.helper';
+import { InventoryInfo } from 'src/models/inventory/inventory-info.model';
 import { LedgerEntryService } from 'src/services/ledger-entry.service';
 import { ShopRepository } from 'src/repositories/shop.repository';
 import { SupplierLedgerEntryRepository } from 'src/repositories/supplier-ledger-entry.repository';
+import { SupplierInventoryLedgerEntryRepository } from 'src/repositories/supplier-inventory-ledger-entry.repository';
 import { SupplierRepository } from 'src/repositories/supplier.repository';
 import { Supplier } from 'src/schemas/supplier.schema';
 import { SupplierLedgerEntry } from 'src/schemas/supplier-ledger-entry.schema';
+import { SupplierInventoryLedgerEntry } from 'src/schemas/supplier-inventory-ledger-entry.schema';
 import { normalizePhone, toPaginationInfo, toShopInfo } from 'src/utils';
 
 @Injectable()
@@ -24,6 +28,7 @@ export class SupplierService {
   constructor(
     private readonly supplierRepository: SupplierRepository,
     private readonly supplierLedgerEntryRepository: SupplierLedgerEntryRepository,
+    private readonly supplierInventoryLedgerEntryRepository: SupplierInventoryLedgerEntryRepository,
     private readonly shopRepository: ShopRepository,
     private readonly ledgerEntryService: LedgerEntryService,
   ) {}
@@ -196,6 +201,36 @@ export class SupplierService {
     }
   }
 
+  //what a supplier has actually delivered, newest first - the inventory
+  //counterpart to getLedger's money view
+  async getInventoryLedger(
+    filter: SupplierInventoryLedgerEntryFilter,
+  ): Promise<ApiResponseDto<PagedResults<SupplierInventoryLedgerEntry>>> {
+    try {
+      const { page, pageSize } = toPaginationInfo(filter);
+      const { results, totalCount } =
+        await this.supplierInventoryLedgerEntryRepository.list(filter);
+      return CommonResponses.OkResponse<
+        PagedResults<SupplierInventoryLedgerEntry>
+      >({
+        results,
+        totalCount,
+        totalPages: Math.ceil(totalCount / pageSize),
+        page,
+        pageSize,
+      });
+    } catch (error) {
+      this.logger.error(
+        'an error occurred while getting the supplier inventory ledger',
+        filter,
+        error,
+      );
+      return CommonResponses.InternalServerErrorResponse<
+        PagedResults<SupplierInventoryLedgerEntry>
+      >('An error occurred while getting the supplier inventory ledger');
+    }
+  }
+
   //manager records a payment made to the supplier - posts one Payment entry
   //for the full amount (no per-bill FIFO allocation - see
   //SupplierLedgerEntry's own comment) and debits the paying shop's cash
@@ -282,6 +317,28 @@ export class SupplierService {
       balanceAfter: balance + amount,
       referenceId,
       description: 'Goods received into the warehouse',
+    });
+  }
+
+  // Internal API for SupplyRequestService (once per approved line item) and
+  // InventoryService (once, for a new item's initial quantity) - post one
+  // inventory-ledger entry for stock that actually arrived, alongside a
+  // postBill call for what it cost.
+  async postInventoryDelivery(
+    supplierId: string,
+    inventoryId: string,
+    inventoryInfoSnapshot: InventoryInfo,
+    quantity: number,
+    expiryDate: Date,
+    referenceId: string,
+  ): Promise<void> {
+    await this.supplierInventoryLedgerEntryRepository.create({
+      supplierId,
+      inventoryId,
+      inventoryInfoSnapshot,
+      quantity,
+      expiryDate,
+      referenceId,
     });
   }
 

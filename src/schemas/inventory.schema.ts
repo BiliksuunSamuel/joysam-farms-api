@@ -52,4 +52,12 @@ export class Inventory extends BaseSchema {
   })
   @ApiProperty({ enum: InventoryStatus })
   status: InventoryStatus;
+
+  // The expiry of whatever's currently on the shelf. Set from a
+  // SupplyRequest line's own expiryDate the moment it's approved (see
+  // SupplyRequestService.approve) - always the most recently received
+  // batch's date, not tracked per-batch.
+  @Prop({ default: null })
+  @ApiProperty()
+  expiryDate: Date;
 }

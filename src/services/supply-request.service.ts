@@ -110,6 +110,7 @@ export class SupplyRequestService {
           inventoryId: inventory.id,
           inventoryInfoSnapshot: toInventoryInfo(inventory),
           quantity: line.quantity,
+          expiryDate: line.expiryDate ? new Date(line.expiryDate) : null,
         });
       }
 
@@ -173,9 +174,18 @@ export class SupplyRequestService {
       }
 
       for (const item of supplyRequest.items) {
-        await this.inventoryRepository.incrementQuantity(
+        await this.inventoryRepository.receiveStock(
           item.inventoryId,
           item.quantity,
+          item.expiryDate,
+        );
+        await this.supplierService.postInventoryDelivery(
+          supplyRequest.supplierId,
+          item.inventoryId,
+          item.inventoryInfoSnapshot,
+          item.quantity,
+          item.expiryDate,
+          id,
         );
       }
 

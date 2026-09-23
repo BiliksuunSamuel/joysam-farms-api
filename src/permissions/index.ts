@@ -31,6 +31,11 @@ export const PERMISSION_FEATURES: PermissionFeature[] = [
       { key: 'shop.create', action: 'Create', description: 'Create a shop' },
       { key: 'shop.update', action: 'Update', description: 'Edit a shop' },
       { key: 'shop.delete', action: 'Delete', description: 'Remove a shop' },
+      {
+        key: 'shop.financials.view',
+        action: 'View financials',
+        description: "See a shop's stock value and cash flow/wallet balance",
+      },
     ],
   },
   {
@@ -83,6 +88,11 @@ export const PERMISSION_FEATURES: PermissionFeature[] = [
         action: 'Delete',
         description: 'Remove an inventory item',
       },
+      {
+        key: 'inventory.financials.view',
+        action: 'View financials',
+        description: 'See warehouse stock value and the stock-value breakdown chart',
+      },
     ],
   },
   {
@@ -119,6 +129,11 @@ export const PERMISSION_FEATURES: PermissionFeature[] = [
         key: 'sale.void.reject',
         action: 'Reject void',
         description: 'Reject a pending sale-void request',
+      },
+      {
+        key: 'sale.financials.view',
+        action: 'View financials',
+        description: 'See revenue figures, totals and trends across sales',
       },
     ],
   },
