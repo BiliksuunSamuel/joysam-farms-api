@@ -31,15 +31,15 @@ export class VoidRequest {
 
   // Also the approver in Instant mode - the requester approves their own
   // request the moment they make it (see SaleService.requestVoid).
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   @ApiProperty()
   reviewedById: string | null;
 
-  @Prop({ default: null })
+  @Prop({ type: Date, default: null })
   @ApiProperty()
   reviewedAt: Date | null;
 
-  @Prop({ default: null })
+  @Prop({ type: String, default: null })
   @ApiProperty()
   reviewNotes: string | null;
 }
