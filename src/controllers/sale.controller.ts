@@ -66,6 +66,18 @@ export class SaleController {
     response.status(res.code).send(res);
   }
 
+  // Registered before ':id' - otherwise "profit-loss" would be captured as an id.
+  @Get('profit-loss')
+  @AuthPermissions('sale.view', 'sale.financials.view')
+  async getProfitAndLoss(
+    @Query() filter: SaleFilter,
+    @AuthUser() user: UserJwtDetails,
+    @Res() response: Response,
+  ) {
+    const res = await this.saleService.getProfitAndLoss(filter, user.id);
+    response.status(res.code).send(res);
+  }
+
   // Registered before ':id' - otherwise "void-requests" would be captured
   // as an id.
   @Get('void-requests')

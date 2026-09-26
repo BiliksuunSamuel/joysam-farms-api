@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ApiResponseDto } from 'src/dtos/common/api.response.dto';
 import { PagedResults } from 'src/dtos/common/paged.results.dto';
+import { ProfitAndLossResponse } from 'src/dtos/sale/profit-and-loss.response.dto';
 import { SaleFilter } from 'src/dtos/sale/sale.filter.dto';
 import { SaleRequest } from 'src/dtos/sale/sale.request.dto';
 import { SaleStatsResponse } from 'src/dtos/sale/sale.stats.response.dto';
@@ -21,6 +22,7 @@ import {
 import { CommonResponses } from 'src/helper/common.responses.helper';
 import { PaymentSplit } from 'src/models/sale/payment-split.model';
 import { SaleItem } from 'src/models/sale/sale-item.model';
+import { SaleProfitItem } from 'src/models/sale/sale-profit-item.model';
 import { VoidRequest } from 'src/models/sale/void-request.model';
 import { CategoryRepository } from 'src/repositories/category.repository';
 import { CounterRepository } from 'src/repositories/counter.repository';
@@ -37,6 +39,7 @@ import { Vendor } from 'src/schemas/vendor.schema';
 import { CustomerService } from 'src/services/customer.service';
 import { LedgerEntryService } from 'src/services/ledger-entry.service';
 import { PaymentTransactionService } from 'src/services/payment-transaction.service';
+import { SaleProfitService } from 'src/services/sale-profit.service';
 import { VendorService } from 'src/services/vendor.service';
 import {
   resolveRequesterShopId,
@@ -47,6 +50,12 @@ import {
   toUserInfo,
   toVendorInfo,
 } from 'src/utils';
+
+// A void has to be requested within this many hours of the sale itself -
+// old enough that stock/cash for it has likely already been reconciled, so
+// unwinding it needs a manual adjustment (a stock adjustment, a ledger
+// entry) rather than a void.
+const VOID_WINDOW_HOURS = 24;
 
 @Injectable()
 export class SaleService {
@@ -65,6 +74,7 @@ export class SaleService {
     private readonly customerService: CustomerService,
     private readonly paymentTransactionService: PaymentTransactionService,
     private readonly settingsRepository: SettingsRepository,
+    private readonly saleProfitService: SaleProfitService,
   ) {}
 
   //get by id
@@ -370,6 +380,20 @@ export class SaleService {
     }
   }
 
+  //gross profit (revenue - cost of goods sold) over the same shop/date
+  //scope getStats() supports - see SaleProfitService
+  async getProfitAndLoss(
+    filter: SaleFilter,
+    requesterId: string,
+  ): Promise<ApiResponseDto<ProfitAndLossResponse>> {
+    const shopId = await resolveRequesterShopId(
+      requesterId,
+      this.userRepository,
+    );
+    const scoped = shopId ? { ...filter, shopId } : filter;
+    return this.saleProfitService.getProfitAndLoss(scoped);
+  }
+
   // Restores every line of a voided sale back into the shop's stock - the
   // exact mirror of create()'s deduction (a positive delta here, negative
   // there) and the same snippet PaymentTransactionService.voidPendingSale
@@ -398,6 +422,15 @@ export class SaleService {
       const existing = await this.saleRepository.getById(id);
       if (!existing) {
         return CommonResponses.NotFoundResponse<Sale>('Sale not found');
+      }
+
+      const hoursSinceSale =
+        (Date.now() - new Date(existing.createdAt).getTime()) / 3_600_000;
+      if (hoursSinceSale > VOID_WINDOW_HOURS) {
+        return CommonResponses.BadRequestResponse<Sale>(
+          undefined,
+          `This sale is more than ${VOID_WINDOW_HOURS} hours old and can no longer be voided`,
+        );
       }
 
       const settings = await this.settingsRepository.get();
@@ -574,6 +607,7 @@ export class SaleService {
       }
 
       const items: SaleItem[] = [];
+      const profitItems: SaleProfitItem[] = [];
       for (const line of request.items) {
         const inventory = await this.inventoryRepository.getById(
           line.inventoryId,
@@ -602,6 +636,20 @@ export class SaleService {
           quantity: line.quantity,
           unitPrice,
           lineTotal: Math.round(unitPrice * line.quantity * 100) / 100,
+        });
+
+        // Cost stays off SaleItem entirely - see SaleProfitItem's own
+        // comment for why - and is captured here, live off Inventory, since
+        // costPrice can change later and this snapshot must not.
+        const costPrice = inventory.costPrice ?? 0;
+        profitItems.push({
+          inventoryId: inventory.id,
+          name: inventory.name,
+          quantity: line.quantity,
+          unitPrice,
+          costPrice,
+          revenue: Math.round(unitPrice * line.quantity * 100) / 100,
+          cost: Math.round(costPrice * line.quantity * 100) / 100,
         });
       }
 
@@ -827,6 +875,22 @@ export class SaleService {
         momoNetwork,
         momoPhone,
         payments,
+      });
+
+      // Recorded unconditionally, including a Pending (Digital/Split) sale -
+      // getProfitAndLoss only ever counts one whose Sale is currently
+      // Completed, so a sale that's later voided or never confirmed simply
+      // never contributes, with nothing here needing to change either way.
+      const cost =
+        Math.round(profitItems.reduce((sum, i) => sum + i.cost, 0) * 100) / 100;
+      await this.saleProfitService.record({
+        saleId: sale.id,
+        shopId: sale.shopId,
+        date: sale.createdAt,
+        items: profitItems,
+        revenue: total,
+        cost,
+        profit: Math.round((total - cost) * 100) / 100,
       });
 
       if (isCredit && vendor) {
