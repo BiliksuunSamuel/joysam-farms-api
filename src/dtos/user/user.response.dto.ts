@@ -7,6 +7,8 @@ export class UserResponse extends BaseSchema {
   @ApiProperty()
   name: string;
   @ApiProperty()
+  username: string;
+  @ApiProperty()
   email: string;
   @ApiProperty()
   phone: string;

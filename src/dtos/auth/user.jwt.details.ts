@@ -1,5 +1,5 @@
 export class UserJwtDetails {
   id: string;
-  email: string;
+  username: string;
   tokenId: string;
 }

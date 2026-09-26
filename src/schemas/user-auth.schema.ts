@@ -10,11 +10,12 @@ export class UserAuth extends BaseSchema {
   @ApiProperty()
   userId: string;
 
-  // Denormalised so login can look up credentials by email in one query,
-  // without going through User first.
-  @Prop({ required: true })
+  // Denormalised so login can look up credentials by username in one query,
+  // without going through User first. Immutable once set, so unlike the old
+  // email field this never needs to be kept in sync with User.
+  @Prop({ required: true, unique: true })
   @ApiProperty()
-  email: string;
+  username: string;
 
   @Prop({ required: true })
   @ApiProperty()

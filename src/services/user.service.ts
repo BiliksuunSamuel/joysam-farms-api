@@ -117,15 +117,23 @@ export class UserService {
     }
   }
 
+  // `overridePassword` is for SeedService's owner-account bootstrap only -
+  // those accounts carry a real, chosen password (from an env var), so they
+  // skip the generated-password/forced-change path entirely. Every other
+  // caller (the /register endpoint) omits it and gets a generated username,
+  // a matching initial password, and mustChangePassword set.
   async create(
     request: CreateUserRequest,
+    overridePassword?: string,
   ): Promise<ApiResponseDto<UserResponse>> {
     try {
-      const existing = await this.userRepository.getByEmail(request.email);
-      if (existing) {
-        return CommonResponses.ConflictResponse<UserResponse>(
-          'An employee with this email already exists',
-        );
+      if (request.email) {
+        const existing = await this.userRepository.getByEmail(request.email);
+        if (existing) {
+          return CommonResponses.ConflictResponse<UserResponse>(
+            'An employee with this email already exists',
+          );
+        }
       }
 
       let shopInfoSnapshot = undefined;
@@ -153,16 +161,25 @@ export class UserService {
       // always needs at least one way in.
       const isFirstUser = (await this.userRepository.count()) === 0;
 
+      const username = await this.userRepository.generateUniqueUsername(
+        request.name,
+      );
+
       const user = await this.userRepository.create({
         ...request,
+        username,
         phone: normalizePhone(request.phone),
         shopInfoSnapshot,
         allPermissions: isFirstUser,
       });
+      // No override password = a normal new hire: the username doubles as
+      // their initial password, and they're forced to change it on first
+      // sign-in (see UserAuth.mustChangePassword).
       await this.userAuthRepository.create({
         userId: user.id,
-        email: user.email,
-        password: await hashPassword(request.password),
+        username,
+        password: await hashPassword(overridePassword ?? username),
+        mustChangePassword: !overridePassword,
       });
       return CommonResponses.CreatedResponse<UserResponse>(
         toUserResponse(user),

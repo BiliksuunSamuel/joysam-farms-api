@@ -23,10 +23,12 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
-  //get user by email
-  async getUserByEmail(email: string): Promise<ApiResponseDto<UserResponse>> {
+  //get user by id - used for self-scoped lookups (profile, my-shop) off the
+  //JWT's own id, never off email/username, since either can be optional or
+  //absent depending on the account
+  async getUserById(id: string): Promise<ApiResponseDto<UserResponse>> {
     try {
-      const user = await this.userRepository.getByEmail(email);
+      const user = await this.userRepository.getById(id);
       if (!user) {
         return {
           message: 'User not found',
@@ -38,11 +40,7 @@ export class AuthService {
         data: toUserResponse(user),
       };
     } catch (error) {
-      this.logger.error(
-        'an error occurred during get user by email',
-        error,
-        email,
-      );
+      this.logger.error('an error occurred during get user by id', error, id);
       return {
         message: 'sorry,something went wrong',
         code: HttpStatus.INTERNAL_SERVER_ERROR,
@@ -51,7 +49,7 @@ export class AuthService {
   }
 
   async validateUser(username: string): Promise<any> {
-    return await this.userRepository.getByEmail(username);
+    return await this.userRepository.getByUsername(username);
   }
 
   async login(
@@ -59,10 +57,12 @@ export class AuthService {
     context?: { ipAddress?: string; agent?: string },
   ): Promise<ApiResponseDto<AuthResponse>> {
     try {
-      const userAuth = await this.userAuthRepository.getByEmail(request.email);
+      const userAuth = await this.userAuthRepository.getByUsername(
+        request.username,
+      );
       if (!userAuth) {
         return {
-          message: 'Incorrect email address or password',
+          message: 'Incorrect username or password',
           code: HttpStatus.UNAUTHORIZED,
         };
       }
@@ -73,7 +73,7 @@ export class AuthService {
       );
       if (!passwordMatch) {
         return {
-          message: 'Incorrect email address or password',
+          message: 'Incorrect username or password',
           code: HttpStatus.UNAUTHORIZED,
         };
       }
@@ -81,7 +81,7 @@ export class AuthService {
       const user = await this.userRepository.getById(userAuth.userId);
       if (!user) {
         return {
-          message: 'Incorrect email address or password',
+          message: 'Incorrect username or password',
           code: HttpStatus.UNAUTHORIZED,
         };
       }
@@ -104,7 +104,7 @@ export class AuthService {
 
       const payload: UserJwtDetails = {
         id: user.id,
-        email: user.email,
+        username: user.username,
         tokenId: session.tokenId,
       };
       return {

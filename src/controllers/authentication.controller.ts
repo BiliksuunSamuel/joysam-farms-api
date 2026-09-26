@@ -50,7 +50,7 @@ export class AuthenticationController {
   @Get('profile')
   @UseGuards(JwtAuthGuard)
   async profile(@AuthUser() user: UserJwtDetails, @Res() response: Response) {
-    const res = await this.authService.getUserByEmail(user.email);
+    const res = await this.authService.getUserById(user.id);
     response.status(res.code).send(res);
   }
 
@@ -75,7 +75,7 @@ export class AuthenticationController {
   @Get('my-shop')
   @UseGuards(JwtAuthGuard)
   async myShop(@AuthUser() user: UserJwtDetails, @Res() response: Response) {
-    const userRes = await this.authService.getUserByEmail(user.email);
+    const userRes = await this.authService.getUserById(user.id);
     if (!userRes.data?.shopId) {
       response
         .status(200)

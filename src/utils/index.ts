@@ -50,6 +50,21 @@ export function generateNumericCode(length: number): string {
   return code;
 }
 
+// A login username candidate from a full name: the first letter of each
+// space-separated part, lowercased, plus a random 4-digit suffix for
+// uniqueness - e.g. "Ama Serwaa" -> "as4821". Not guaranteed unique on its
+// own; see UserRepository.generateUniqueUsername for the check-and-retry
+// loop (same pattern as InventoryRepository.generateUniqueSerialNumber).
+export function generateUsername(name: string): string {
+  const initials = name
+    .trim()
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join('')
+    .toLowerCase();
+  return `${initials}${generateNumericCode(4)}`;
+}
+
 //build a point-in-time snapshot of a shop, for embedding on other documents
 export function toShopInfo(shop): ShopInfo {
   return {
@@ -116,6 +131,7 @@ export function toUserResponse(user): UserResponse {
   return {
     id: user.id,
     name: user.name,
+    username: user.username,
     email: user.email,
     phone: user.phone,
     roleId: user.roleId,

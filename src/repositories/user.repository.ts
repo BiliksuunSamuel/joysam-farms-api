@@ -8,7 +8,7 @@ import { UserRequest } from 'src/dtos/user/user.request.dto';
 import { UserStatus } from 'src/enums';
 import { ShopInfo } from 'src/models/shop/shop-info.model';
 import { User } from 'src/schemas/user.schema';
-import { generateId, toPaginationInfo } from 'src/utils';
+import { generateId, generateUsername, toPaginationInfo } from 'src/utils';
 
 @Injectable()
 export class UserRepository {
@@ -26,6 +26,22 @@ export class UserRepository {
     return await this.userRepository.findOne({ email }).lean();
   }
 
+  //get by username, for login
+  async getByUsername(username: string): Promise<User> {
+    return await this.userRepository.findOne({ username }).lean();
+  }
+
+  //generate a username candidate from the person's name, retrying against
+  //the DB until it's unique - same pattern as
+  //InventoryRepository.generateUniqueSerialNumber
+  async generateUniqueUsername(name: string): Promise<string> {
+    let username = generateUsername(name);
+    while (await this.userRepository.exists({ username })) {
+      username = generateUsername(name);
+    }
+    return username;
+  }
+
   //list, with optional search over name/email/phone and role/shop/status
   //filters. excludeId lets a caller leave themselves out of their own list
   //(e.g. the signed-in user managing other employees).
@@ -40,7 +56,12 @@ export class UserRepository {
     }
     if (filter?.query) {
       const regex = new RegExp(filter.query, 'i');
-      query.$or = [{ name: regex }, { email: regex }, { phone: regex }];
+      query.$or = [
+        { name: regex },
+        { username: regex },
+        { email: regex },
+        { phone: regex },
+      ];
     }
     if (filter?.roleId) {
       query.roleId = filter.roleId;
@@ -76,7 +97,12 @@ export class UserRepository {
     }
     if (filter?.query) {
       const regex = new RegExp(filter.query, 'i');
-      query.$or = [{ name: regex }, { email: regex }, { phone: regex }];
+      query.$or = [
+        { name: regex },
+        { username: regex },
+        { email: regex },
+        { phone: regex },
+      ];
     }
     if (filter?.roleId) {
       query.roleId = filter.roleId;
@@ -97,6 +123,7 @@ export class UserRepository {
   //create user
   async create(
     request: UserRequest & {
+      username: string;
       shopInfoSnapshot?: ShopInfo;
       allPermissions?: boolean;
     },

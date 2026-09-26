@@ -123,13 +123,15 @@ export class SeedService implements OnApplicationBootstrap {
           );
           continue;
         }
-        const res = await this.userService.create({
-          name: account.name,
-          email: account.email,
-          phone: account.phone,
-          roleId: managerRole.id,
+        const res = await this.userService.create(
+          {
+            name: account.name,
+            email: account.email,
+            phone: account.phone,
+            roleId: managerRole.id,
+          },
           password,
-        });
+        );
         if (!res.data) {
           this.logger.error(
             `Failed to create "${account.email}": ${res.message}`,

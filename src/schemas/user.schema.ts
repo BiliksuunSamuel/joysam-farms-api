@@ -12,7 +12,14 @@ export class User extends BaseSchema {
   @ApiProperty()
   name: string;
 
-  @Prop()
+  // The sign-in identifier - system-generated (initials + a random digit
+  // suffix, see generateUsername/UserRepository.generateUniqueUsername),
+  // never chosen by an admin or the employee, and never edited afterward.
+  @Prop({ required: true, unique: true })
+  @ApiProperty()
+  username: string;
+
+  @Prop({ default: null })
   @ApiProperty()
   email: string;
 

@@ -1,9 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
 import { UserRequest } from './user.request.dto';
-import { IsNotEmpty } from 'class-validator';
 
-export class CreateUserRequest extends UserRequest {
-  @ApiProperty()
-  @IsNotEmpty()
-  password: string;
-}
+// No password here - it's system-generated (equal to the generated
+// username) at creation time, not admin-supplied. See UserService.create.
+export class CreateUserRequest extends UserRequest {}

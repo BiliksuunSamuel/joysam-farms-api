@@ -16,16 +16,17 @@ export class UserAuthRepository {
     return await this.userAuthRepository.findOne({ userId }).lean();
   }
 
-  //get by email, so login can look up credentials in one query
-  async getByEmail(email: string): Promise<UserAuth> {
-    return await this.userAuthRepository.findOne({ email }).lean();
+  //get by username, so login can look up credentials in one query
+  async getByUsername(username: string): Promise<UserAuth> {
+    return await this.userAuthRepository.findOne({ username }).lean();
   }
 
   //create login credentials for a user
   async create(request: {
     userId: string;
-    email: string;
+    username: string;
     password: string;
+    mustChangePassword?: boolean;
   }): Promise<UserAuth> {
     const res = await this.userAuthRepository.create({
       ...request,
