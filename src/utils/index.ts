@@ -20,6 +20,14 @@ export function generateId() {
   return randomUUID().replace(/-/g, '');
 }
 
+// Node reports a client IP as IPv4-mapped IPv6 (e.g. "::ffff:10.26.104.80")
+// whenever the server's listening socket is dual-stack but the connection
+// itself came in over IPv4 - strip that prefix so recorded IPs read as
+// plain IPv4. A genuine IPv6 address (no "::ffff:" prefix) is untouched.
+export function normalizeIp(ip: string | undefined): string | undefined {
+  return ip?.startsWith('::ffff:') ? ip.slice('::ffff:'.length) : ip;
+}
+
 export function isValidPhoneNumber(
   phone: string,
   defaultCountry: CountryCode = DEFAULT_PHONE_COUNTRY,

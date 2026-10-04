@@ -12,6 +12,7 @@ import {
   AuditLogMeta,
 } from 'src/decorators/audit-log.decorator';
 import { AuditLogService } from 'src/services/audit-log.service';
+import { normalizeIp } from 'src/utils';
 
 /**
  * Every controller in this app sends its response manually via
@@ -70,7 +71,7 @@ export class AuditLogInterceptor implements NestInterceptor {
           action: meta.action,
           description: `${meta.action} ${meta.entityType}${entityId ? ` (${entityId})` : ''}`,
           performedById,
-          ipAddress: request.ip,
+          ipAddress: normalizeIp(request.ip),
           agent: request.headers['user-agent'],
         });
       }),

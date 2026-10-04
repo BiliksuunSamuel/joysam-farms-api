@@ -21,6 +21,7 @@ import { JwtAuthGuard } from 'src/providers/jwt-auth..guard';
 import { AuthService } from 'src/services/auth.service';
 import { ShopResponse } from 'src/dtos/shop/shop.response.dto';
 import { ShopService } from 'src/services/shop.service';
+import { normalizeIp } from 'src/utils';
 
 @Controller('api/authentication')
 @ApiTags('Authentication')
@@ -40,7 +41,7 @@ export class AuthenticationController {
     @Res() response: Response,
   ) {
     const res = await this.authService.login(req, {
-      ipAddress: request.ip,
+      ipAddress: normalizeIp(request.ip),
       agent: request.headers['user-agent'],
     });
     response.status(res.code).send(res);
