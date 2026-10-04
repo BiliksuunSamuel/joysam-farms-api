@@ -5,6 +5,7 @@ import { ExpenseFilter } from 'src/dtos/expense/expense.filter.dto';
 import { ExpenseRequest } from 'src/dtos/expense/expense.request.dto';
 import { ExpenseTrendFilter } from 'src/dtos/expense/expense.trend.filter.dto';
 import { ExpenseCategory, ExpenseStatus, ExpenseTrendGroupBy } from 'src/enums';
+import { ServiceInfo } from 'src/models/service/service-info.model';
 import { ShopInfo } from 'src/models/shop/shop-info.model';
 import { Expense } from 'src/schemas/expense.schema';
 import { generateId, toPaginationInfo } from 'src/utils';
@@ -132,6 +133,7 @@ export class ExpenseRepository {
   async create(
     request: ExpenseRequest & {
       shopInfoSnapshot?: ShopInfo;
+      serviceInfoSnapshot?: ServiceInfo;
       recordedById: string;
     },
   ): Promise<Expense> {
@@ -147,9 +149,11 @@ export class ExpenseRepository {
   //this always applies the full request as given, recordedById excepted
   async update(
     id: string,
-    request: Omit<ExpenseRequest, 'shopId'> & {
+    request: Omit<ExpenseRequest, 'shopId' | 'serviceId'> & {
       shopId: string | null;
       shopInfoSnapshot: ShopInfo | null;
+      serviceId: string | null;
+      serviceInfoSnapshot: ServiceInfo | null;
     },
   ): Promise<Expense> {
     return await this.expenseRepository

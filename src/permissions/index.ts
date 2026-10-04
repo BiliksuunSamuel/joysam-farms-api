@@ -91,7 +91,34 @@ export const PERMISSION_FEATURES: PermissionFeature[] = [
       {
         key: 'inventory.financials.view',
         action: 'View financials',
-        description: 'See warehouse stock value and the stock-value breakdown chart',
+        description:
+          'See warehouse stock value and the stock-value breakdown chart',
+      },
+    ],
+  },
+  {
+    feature: 'Services',
+    description: 'The company-wide service catalog (e.g. Grinding, Mixing)',
+    permissions: [
+      {
+        key: 'service.view',
+        action: 'View',
+        description: 'See services and their details',
+      },
+      {
+        key: 'service.create',
+        action: 'Create',
+        description: 'Create a service',
+      },
+      {
+        key: 'service.update',
+        action: 'Update',
+        description: 'Edit a service',
+      },
+      {
+        key: 'service.delete',
+        action: 'Delete',
+        description: 'Remove a service',
       },
     ],
   },

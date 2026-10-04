@@ -11,11 +11,13 @@ import { StockBreakdownFilter } from 'src/dtos/inventory/stock.breakdown.filter.
 import { StockBreakdownGroupBy, Unit } from 'src/enums';
 import { CommonResponses } from 'src/helper/common.responses.helper';
 import { CategoryRepository } from 'src/repositories/category.repository';
+import { InventoryAdjustmentRepository } from 'src/repositories/inventory-adjustment.repository';
 import { InventoryRepository } from 'src/repositories/inventory.repository';
 import { SaleRepository } from 'src/repositories/sale.repository';
 import { SettingsRepository } from 'src/repositories/settings.repository';
 import { SupplierRepository } from 'src/repositories/supplier.repository';
 import { Inventory } from 'src/schemas/inventory.schema';
+import { InventoryAdjustment } from 'src/schemas/inventory-adjustment.schema';
 import { Settings } from 'src/schemas/settings.schema';
 import { LowStockThresholdMode } from 'src/enums';
 import {
@@ -54,6 +56,7 @@ export class InventoryService {
     private readonly saleRepository: SaleRepository,
     private readonly supplierRepository: SupplierRepository,
     private readonly supplierService: SupplierService,
+    private readonly inventoryAdjustmentRepository: InventoryAdjustmentRepository,
   ) {}
 
   // Settings once, and only the items on this page's daily sales velocity -
@@ -486,14 +489,72 @@ export class InventoryService {
   async update(
     id: string,
     request: InventoryRequest,
+    performedById: string,
   ): Promise<ApiResponseDto<InventoryResponse>> {
     try {
-      const inventory = await this.inventoryRepository.update(id, request);
+      const existing = await this.inventoryRepository.getById(id);
+      if (!existing) {
+        return CommonResponses.NotFoundResponse<InventoryResponse>(
+          'Inventory item not found',
+        );
+      }
+
+      if (request.supplierId) {
+        const supplier = await this.supplierRepository.getById(
+          request.supplierId,
+        );
+        if (!supplier) {
+          return CommonResponses.NotFoundResponse<InventoryResponse>(
+            'Supplier not found',
+          );
+        }
+      }
+
+      const { supplierId, adjustmentDate, adjustmentNote, ...fields } = request;
+      const inventory = await this.inventoryRepository.update(id, fields);
       if (!inventory) {
         return CommonResponses.NotFoundResponse<InventoryResponse>(
           'Inventory item not found',
         );
       }
+
+      // Only a genuine quantity change gets logged/billed - editing any
+      // other field (price, category, etc.) never touches
+      // InventoryAdjustment or the supplier ledger.
+      if (request.quantity != null && request.quantity !== existing.quantity) {
+        const delta = request.quantity - existing.quantity;
+        await this.inventoryAdjustmentRepository.create({
+          inventoryId: id,
+          quantityBefore: existing.quantity,
+          quantityAfter: request.quantity,
+          delta,
+          date: adjustmentDate ? new Date(adjustmentDate) : new Date(),
+          note: adjustmentNote,
+          performedById,
+          supplierId: supplierId && delta > 0 ? supplierId : undefined,
+        });
+
+        // A supplier attached to an *increase* is treated as a delivery,
+        // same bookkeeping as create() and a SupplyRequest approval - just
+        // for the delta, not the new total. A decrease (or no supplier)
+        // never bills anyone.
+        if (supplierId && delta > 0) {
+          await this.supplierService.postInventoryDelivery(
+            supplierId,
+            inventory.id,
+            toInventoryInfo(inventory),
+            delta,
+            inventory.expiryDate ?? null,
+            inventory.id,
+          );
+          await this.supplierService.postBill(
+            supplierId,
+            (inventory.costPrice ?? 0) * delta,
+            inventory.id,
+          );
+        }
+      }
+
       const category = await this.categoryRepository.getById(
         inventory.categoryId,
       );
@@ -515,6 +576,26 @@ export class InventoryService {
       );
       return CommonResponses.InternalServerErrorResponse<InventoryResponse>(
         'An error occurred while updating inventory item',
+      );
+    }
+  }
+
+  //most recent quantity-change adjustments for one item, for the product detail page
+  async getAdjustments(
+    id: string,
+  ): Promise<ApiResponseDto<InventoryAdjustment[]>> {
+    try {
+      const adjustments =
+        await this.inventoryAdjustmentRepository.listByInventoryId(id);
+      return CommonResponses.OkResponse<InventoryAdjustment[]>(adjustments);
+    } catch (error) {
+      this.logger.error(
+        'an error occurred while getting inventory adjustments',
+        id,
+        error,
+      );
+      return CommonResponses.InternalServerErrorResponse<InventoryAdjustment[]>(
+        'An error occurred while getting inventory adjustments',
       );
     }
   }

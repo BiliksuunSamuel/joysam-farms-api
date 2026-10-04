@@ -1,7 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  ArrayMinSize,
   IsArray,
   IsDateString,
   IsEnum,
@@ -16,6 +15,7 @@ import { SalePaymentMethod } from 'src/enums';
 import { IsValidPhoneNumber } from 'src/decorators/is-valid-phone-number.decorator';
 import { PaymentSplitRequest } from './payment-split.request.dto';
 import { SaleItemRequest } from './sale.item.request.dto';
+import { ServiceSaleItemRequest } from './service.sale-item.request.dto';
 
 export class SaleRequest {
   @ApiProperty()
@@ -23,12 +23,22 @@ export class SaleRequest {
   @IsString()
   shopId: string;
 
-  @ApiProperty({ type: [SaleItemRequest] })
+  // Exactly one of items/serviceItems must be provided, never both, never
+  // neither - enforced in SaleService.create (a business rule, not
+  // something class-validator's per-field decorators express well here).
+  @ApiProperty({ type: [SaleItemRequest], required: false })
+  @IsOptional()
   @IsArray()
-  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => SaleItemRequest)
-  items: SaleItemRequest[];
+  items?: SaleItemRequest[];
+
+  @ApiProperty({ type: [ServiceSaleItemRequest], required: false })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ServiceSaleItemRequest)
+  serviceItems?: ServiceSaleItemRequest[];
 
   @ApiProperty({ required: false })
   @IsOptional()

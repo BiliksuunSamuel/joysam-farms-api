@@ -35,6 +35,7 @@ export enum UserStatus {
 export enum Unit {
   Crate = 'Crate',
   Kg = 'Kg',
+  Pound = 'Pound',
   Tray = 'Tray',
   Bunch = 'Bunch',
   Bag = 'Bag',
@@ -50,6 +51,14 @@ export enum InventoryStatus {
 export enum ShopInventoryStatus {
   Available = 'Available',
   Unavailable = 'Unavailable',
+}
+
+// Whether a service (e.g. Grinding, Mixing) can currently be sold - see
+// SaleService.create, which rejects a service sale line for one that's
+// Inactive.
+export enum ServiceStatus {
+  Active = 'Active',
+  Inactive = 'Inactive',
 }
 
 export enum TransferStatus {

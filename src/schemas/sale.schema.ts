@@ -7,6 +7,7 @@ import { ShopInfo } from 'src/models/shop/shop-info.model';
 import { UserInfo } from 'src/models/user/user-info.model';
 import { VendorInfo } from 'src/models/vendor/vendor-info.model';
 import { SaleItem } from 'src/models/sale/sale-item.model';
+import { ServiceSaleItem } from 'src/models/sale/service-sale-item.model';
 import { PaymentSplit } from 'src/models/sale/payment-split.model';
 import { VoidRequest } from 'src/models/sale/void-request.model';
 
@@ -15,6 +16,7 @@ const UserInfoSchema = SchemaFactory.createForClass(UserInfo);
 const VendorInfoSchema = SchemaFactory.createForClass(VendorInfo);
 const CustomerInfoSchema = SchemaFactory.createForClass(CustomerInfo);
 const SaleItemSchema = SchemaFactory.createForClass(SaleItem);
+const ServiceSaleItemSchema = SchemaFactory.createForClass(ServiceSaleItem);
 const PaymentSplitSchema = SchemaFactory.createForClass(PaymentSplit);
 const VoidRequestSchema = SchemaFactory.createForClass(VoidRequest);
 
@@ -44,9 +46,16 @@ export class Sale extends BaseSchema {
   @ApiProperty()
   receiptNo: string;
 
+  // Exactly one of items/serviceItems is ever non-empty - a sale is either
+  // for physical products or for a service (e.g. Grinding, Mixing), never
+  // both in the same transaction (see SaleService.create).
   @Prop({ type: [SaleItemSchema], default: [] })
   @ApiProperty({ type: [SaleItem] })
   items: SaleItem[];
+
+  @Prop({ type: [ServiceSaleItemSchema], default: [] })
+  @ApiProperty({ type: [ServiceSaleItem] })
+  serviceItems: ServiceSaleItem[];
 
   @Prop({ required: true })
   @ApiProperty()

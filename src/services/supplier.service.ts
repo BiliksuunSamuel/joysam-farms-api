@@ -9,18 +9,16 @@ import { SupplierInventoryLedgerEntryFilter } from 'src/dtos/supplier/supplier-i
 import { SupplierPaymentRequest } from 'src/dtos/supplier/supplier.payment.request.dto';
 import { SupplierRequest } from 'src/dtos/supplier/supplier.request.dto';
 import { SupplierResponse } from 'src/dtos/supplier/supplier.response.dto';
-import { LedgerSource, SupplierLedgerEntryType } from 'src/enums';
+import { SupplierLedgerEntryType } from 'src/enums';
 import { CommonResponses } from 'src/helper/common.responses.helper';
 import { InventoryInfo } from 'src/models/inventory/inventory-info.model';
-import { LedgerEntryService } from 'src/services/ledger-entry.service';
-import { ShopRepository } from 'src/repositories/shop.repository';
 import { SupplierLedgerEntryRepository } from 'src/repositories/supplier-ledger-entry.repository';
 import { SupplierInventoryLedgerEntryRepository } from 'src/repositories/supplier-inventory-ledger-entry.repository';
 import { SupplierRepository } from 'src/repositories/supplier.repository';
 import { Supplier } from 'src/schemas/supplier.schema';
 import { SupplierLedgerEntry } from 'src/schemas/supplier-ledger-entry.schema';
 import { SupplierInventoryLedgerEntry } from 'src/schemas/supplier-inventory-ledger-entry.schema';
-import { normalizePhone, toPaginationInfo, toShopInfo } from 'src/utils';
+import { normalizePhone, toPaginationInfo } from 'src/utils';
 
 @Injectable()
 export class SupplierService {
@@ -29,8 +27,6 @@ export class SupplierService {
     private readonly supplierRepository: SupplierRepository,
     private readonly supplierLedgerEntryRepository: SupplierLedgerEntryRepository,
     private readonly supplierInventoryLedgerEntryRepository: SupplierInventoryLedgerEntryRepository,
-    private readonly shopRepository: ShopRepository,
-    private readonly ledgerEntryService: LedgerEntryService,
   ) {}
 
   async getById(id: string): Promise<ApiResponseDto<SupplierResponse>> {
@@ -233,8 +229,10 @@ export class SupplierService {
 
   //manager records a payment made to the supplier - posts one Payment entry
   //for the full amount (no per-bill FIFO allocation - see
-  //SupplierLedgerEntry's own comment) and debits the paying shop's cash
-  //wallet, since money is leaving it
+  //SupplierLedgerEntry's own comment). Deliberately doesn't touch any
+  //shop's cash wallet - a supplier is paid by the business as a whole
+  //(they deliver to the warehouse, not to a shop), not out of a specific
+  //shop's till, so this only ever posts against the supplier's own balance.
   async recordPayment(
     id: string,
     request: SupplierPaymentRequest,
@@ -247,12 +245,6 @@ export class SupplierService {
           'Supplier not found',
         );
       }
-      const shop = await this.shopRepository.getById(request.shopId);
-      if (!shop) {
-        return CommonResponses.NotFoundResponse<SupplierResponse>(
-          'Shop not found',
-        );
-      }
 
       const date = request.date ? new Date(request.date) : new Date();
       const balance = await this.supplierLedgerEntryRepository.getBalance(id);
@@ -263,23 +255,11 @@ export class SupplierService {
         type: SupplierLedgerEntryType.Payment,
         amount: request.amount,
         balanceAfter: balance - request.amount,
-        shopId: request.shopId,
-        shopInfoSnapshot: toShopInfo(shop),
         paymentMethod: request.method,
         reference: request.reference,
         description: request.note,
         recordedById,
       });
-
-      await this.ledgerEntryService.debit(
-        request.shopId,
-        request.amount,
-        LedgerSource.SupplierPayment,
-        {
-          description: `Payment to ${supplier.name}`,
-          recordedById,
-        },
-      );
 
       const updated = await this.supplierRepository.getById(id);
       return CommonResponses.OkResponse<SupplierResponse>(

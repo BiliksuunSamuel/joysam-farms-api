@@ -36,6 +36,12 @@ export class ExpenseRequest {
   @IsString()
   shopId?: string;
 
+  // Omit if this expense isn't tied to a specific service.
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  serviceId?: string;
+
   @ApiProperty()
   @IsNotEmpty()
   @IsString()

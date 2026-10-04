@@ -78,6 +78,21 @@ export class SaleController {
     response.status(res.code).send(res);
   }
 
+  // Registered before ':id' - otherwise "payment-method-breakdown" would be captured as an id.
+  @Get('payment-method-breakdown')
+  @AuthPermissions('sale.view', 'sale.financials.view')
+  async getPaymentMethodBreakdown(
+    @Query() filter: SaleFilter,
+    @AuthUser() user: UserJwtDetails,
+    @Res() response: Response,
+  ) {
+    const res = await this.saleService.getPaymentMethodBreakdown(
+      filter,
+      user.id,
+    );
+    response.status(res.code).send(res);
+  }
+
   // Registered before ':id' - otherwise "void-requests" would be captured
   // as an id.
   @Get('void-requests')

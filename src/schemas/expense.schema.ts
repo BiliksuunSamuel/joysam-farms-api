@@ -6,9 +6,11 @@ import {
   ExpensePaymentMethod,
   ExpenseStatus,
 } from 'src/enums';
+import { ServiceInfo } from 'src/models/service/service-info.model';
 import { ShopInfo } from 'src/models/shop/shop-info.model';
 
 const ShopInfoSchema = SchemaFactory.createForClass(ShopInfo);
+const ServiceInfoSchema = SchemaFactory.createForClass(ServiceInfo);
 
 // An operating cost - rent, utilities, wages, etc. - company-wide or at a
 // specific shop.
@@ -34,6 +36,17 @@ export class Expense extends BaseSchema {
   @Prop({ type: ShopInfoSchema, default: null })
   @ApiProperty({ type: ShopInfo })
   shopInfoSnapshot: ShopInfo;
+
+  // Optionally tied to the service this expense was incurred for (e.g.
+  // electricity for Grinding/Mixing) - null means not service-specific,
+  // same convention as shopId/shopInfoSnapshot above.
+  @Prop({ default: null })
+  @ApiProperty()
+  serviceId: string;
+
+  @Prop({ type: ServiceInfoSchema, default: null })
+  @ApiProperty({ type: ServiceInfo })
+  serviceInfoSnapshot: ServiceInfo;
 
   @Prop({ required: true })
   @ApiProperty()

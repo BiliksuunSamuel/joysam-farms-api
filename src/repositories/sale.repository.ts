@@ -8,6 +8,7 @@ import { VoidRequestFilter } from 'src/dtos/sale/void-request.filter.dto';
 import { CustomerInfo } from 'src/models/customer/customer-info.model';
 import { PaymentSplit } from 'src/models/sale/payment-split.model';
 import { SaleItem } from 'src/models/sale/sale-item.model';
+import { ServiceSaleItem } from 'src/models/sale/service-sale-item.model';
 import { VoidRequest } from 'src/models/sale/void-request.model';
 import { ShopInfo } from 'src/models/shop/shop-info.model';
 import { UserInfo } from 'src/models/user/user-info.model';
@@ -28,6 +29,7 @@ export type CreateSaleRecord = {
   cashierInfoSnapshot: UserInfo;
   receiptNo: string;
   items: SaleItem[];
+  serviceItems: ServiceSaleItem[];
   subtotal: number;
   discount: number;
   total: number;
@@ -364,6 +366,43 @@ export class SaleRepository {
           revenue: { $sum: '$legs.amount' },
         },
       },
+    ]);
+
+    return results.map((r) => ({ method: r._id, revenue: r.revenue }));
+  }
+
+  //revenue per payment method over the same shop/date scope getStats
+  //supports - Split sales are unwound into their Cash/Digital legs rather
+  //than bucketed as one "Split" total, same technique as
+  //getPaymentMethodTotals (which this doesn't reuse directly since that one
+  //takes a fixed, required date range for the Daily Report rather than
+  //SaleFilter's optional/inclusive-end-date convention)
+  async getPaymentMethodBreakdown(
+    filter: SaleFilter,
+  ): Promise<{ method: SalePaymentMethod; revenue: number }[]> {
+    const match: any = { status: SaleStatus.Completed };
+    if (filter?.shopId) match.shopId = filter.shopId;
+    if (filter?.startDate || filter?.endDate) {
+      match.createdAt = {};
+      if (filter.startDate) match.createdAt.$gte = new Date(filter.startDate);
+      if (filter.endDate) match.createdAt.$lte = new Date(filter.endDate);
+    }
+
+    const results = await this.saleRepository.aggregate([
+      { $match: match },
+      {
+        $project: {
+          legs: {
+            $cond: [
+              { $eq: ['$paymentMethod', SalePaymentMethod.Split] },
+              '$payments',
+              [{ method: '$paymentMethod', amount: '$total' }],
+            ],
+          },
+        },
+      },
+      { $unwind: '$legs' },
+      { $group: { _id: '$legs.method', revenue: { $sum: '$legs.amount' } } },
     ]);
 
     return results.map((r) => ({ method: r._id, revenue: r.revenue }));

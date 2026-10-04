@@ -2,7 +2,6 @@ import { ApiProperty } from '@nestjs/swagger';
 import {
   IsDateString,
   IsEnum,
-  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
@@ -10,6 +9,10 @@ import {
 } from 'class-validator';
 import { SupplierPaymentMethod } from 'src/enums';
 
+// No shopId - a supplier is paid by the business, not by any one shop's
+// cash wallet (suppliers deliver to the warehouse, not to a shop), so this
+// payment only ever posts against the supplier's own balance. See
+// SupplierService.recordPayment.
 export class SupplierPaymentRequest {
   @ApiProperty()
   @IsNumber()
@@ -19,11 +22,6 @@ export class SupplierPaymentRequest {
   @ApiProperty({ enum: SupplierPaymentMethod })
   @IsEnum(SupplierPaymentMethod)
   method: SupplierPaymentMethod;
-
-  @ApiProperty({ description: 'The shop whose cash paid the supplier' })
-  @IsString()
-  @IsNotEmpty()
-  shopId: string;
 
   @ApiProperty({ required: false })
   @IsOptional()

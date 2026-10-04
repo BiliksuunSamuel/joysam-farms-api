@@ -9,6 +9,7 @@ import { ExpenseTrendFilter } from 'src/dtos/expense/expense.trend.filter.dto';
 import { ExpenseStatus, ExpenseTrendGroupBy, LedgerSource } from 'src/enums';
 import { CommonResponses } from 'src/helper/common.responses.helper';
 import { ExpenseRepository } from 'src/repositories/expense.repository';
+import { ServiceRepository } from 'src/repositories/service.repository';
 import { ShopRepository } from 'src/repositories/shop.repository';
 import { UserRepository } from 'src/repositories/user.repository';
 import { Expense } from 'src/schemas/expense.schema';
@@ -20,6 +21,7 @@ import {
   resolveRequesterShopId,
   startOfDayWeekMonthBucket,
   toPaginationInfo,
+  toServiceInfo,
   toShopInfo,
 } from 'src/utils';
 
@@ -29,6 +31,7 @@ export class ExpenseService {
   constructor(
     private readonly expenseRepository: ExpenseRepository,
     private readonly shopRepository: ShopRepository,
+    private readonly serviceRepository: ServiceRepository,
     private readonly ledgerEntryService: LedgerEntryService,
     private readonly userRepository: UserRepository,
   ) {}
@@ -144,9 +147,19 @@ export class ExpenseService {
         shopInfoSnapshot = toShopInfo(shop);
       }
 
+      let serviceInfoSnapshot = undefined;
+      if (request.serviceId) {
+        const service = await this.serviceRepository.getById(request.serviceId);
+        if (!service) {
+          return CommonResponses.NotFoundResponse<Expense>('Service not found');
+        }
+        serviceInfoSnapshot = toServiceInfo(service);
+      }
+
       const expense = await this.expenseRepository.create({
         ...request,
         shopInfoSnapshot,
+        serviceInfoSnapshot,
         recordedById,
       });
 
@@ -194,10 +207,21 @@ export class ExpenseService {
         shopInfoSnapshot = toShopInfo(shop);
       }
 
+      let serviceInfoSnapshot = null;
+      if (request.serviceId) {
+        const service = await this.serviceRepository.getById(request.serviceId);
+        if (!service) {
+          return CommonResponses.NotFoundResponse<Expense>('Service not found');
+        }
+        serviceInfoSnapshot = toServiceInfo(service);
+      }
+
       const expense = await this.expenseRepository.update(id, {
         ...request,
         shopId: request.shopId ?? null,
         shopInfoSnapshot,
+        serviceId: request.serviceId ?? null,
+        serviceInfoSnapshot,
       });
       if (!expense) {
         return CommonResponses.NotFoundResponse<Expense>('Expense not found');

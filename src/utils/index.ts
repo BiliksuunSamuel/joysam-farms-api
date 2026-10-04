@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { UserResponse } from 'src/dtos/user/user.response.dto';
 import { CustomerInfo } from 'src/models/customer/customer-info.model';
 import { InventoryInfo } from 'src/models/inventory/inventory-info.model';
+import { ServiceInfo } from 'src/models/service/service-info.model';
 import { ShopInfo } from 'src/models/shop/shop-info.model';
 import { SupplierInfo } from 'src/models/supplier/supplier-info.model';
 import { UserInfo } from 'src/models/user/user-info.model';
@@ -114,6 +115,18 @@ export function toInventoryInfo(inventory): InventoryInfo {
     price: inventory.price,
     serialNumber: inventory.serialNumber,
     barcode: inventory.barcode,
+  };
+}
+
+//build a point-in-time snapshot of a service, for embedding on other documents
+export function toServiceInfo(service): ServiceInfo {
+  return {
+    id: service.id,
+    name: service.name,
+    description: service.description,
+    unit: service.unit,
+    unitValue: service.unitValue,
+    price: service.price,
   };
 }
 

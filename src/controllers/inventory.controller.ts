@@ -18,6 +18,8 @@ import { BaseFilter } from 'src/dtos/common/base.filter.dto';
 import { InventoryRequest } from 'src/dtos/inventory/inventory.request.dto';
 import { StockBreakdownFilter } from 'src/dtos/inventory/stock.breakdown.filter.dto';
 import { AuditLog } from 'src/decorators/audit-log.decorator';
+import { UserJwtDetails } from 'src/dtos/auth/user.jwt.details';
+import { AuthUser } from 'src/extensions/auth.extensions';
 import { AuthPermissions } from 'src/middlewares/auth.permissions';
 import { AuditLogInterceptor } from 'src/providers/audit-log.interceptor';
 import { InventoryService } from 'src/services/inventory.service';
@@ -111,9 +113,18 @@ export class InventoryController {
   async update(
     @Param('id') id: string,
     @Body() request: InventoryRequest,
+    @AuthUser() user: UserJwtDetails,
     @Res() response: Response,
   ) {
-    const res = await this.inventoryService.update(id, request);
+    const res = await this.inventoryService.update(id, request, user.id);
+    response.status(res.code).send(res);
+  }
+
+  @Get(':id/adjustments')
+  @AuthPermissions('inventory.view')
+  @ApiParam({ name: 'id', type: String })
+  async getAdjustments(@Param('id') id: string, @Res() response: Response) {
+    const res = await this.inventoryService.getAdjustments(id);
     response.status(res.code).send(res);
   }
 

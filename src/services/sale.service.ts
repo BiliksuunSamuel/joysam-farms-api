@@ -1,9 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ApiResponseDto } from 'src/dtos/common/api.response.dto';
 import { PagedResults } from 'src/dtos/common/paged.results.dto';
+import { PaymentMethodBreakdownPoint } from 'src/dtos/sale/payment-method-breakdown.response.dto';
 import { ProfitAndLossResponse } from 'src/dtos/sale/profit-and-loss.response.dto';
 import { SaleFilter } from 'src/dtos/sale/sale.filter.dto';
 import { SaleRequest } from 'src/dtos/sale/sale.request.dto';
+import { SaleItemRequest } from 'src/dtos/sale/sale.item.request.dto';
+import { ServiceSaleItemRequest } from 'src/dtos/sale/service.sale-item.request.dto';
 import { SaleStatsResponse } from 'src/dtos/sale/sale.stats.response.dto';
 import { SalesTrend } from 'src/dtos/sale/sales.trend.dto';
 import { SalesTrendFilter } from 'src/dtos/sale/sales.trend.filter.dto';
@@ -14,6 +17,7 @@ import {
   DiscountLimitType,
   LedgerSource,
   SalePaymentMethod,
+  ServiceStatus,
   SaleStatus,
   SalesTrendGroupBy,
   VoidApprovalMode,
@@ -23,12 +27,14 @@ import { CommonResponses } from 'src/helper/common.responses.helper';
 import { PaymentSplit } from 'src/models/sale/payment-split.model';
 import { SaleItem } from 'src/models/sale/sale-item.model';
 import { SaleProfitItem } from 'src/models/sale/sale-profit-item.model';
+import { ServiceSaleItem } from 'src/models/sale/service-sale-item.model';
 import { VoidRequest } from 'src/models/sale/void-request.model';
 import { CategoryRepository } from 'src/repositories/category.repository';
 import { CounterRepository } from 'src/repositories/counter.repository';
 import { InventoryRepository } from 'src/repositories/inventory.repository';
 import { RoleRepository } from 'src/repositories/role.repository';
 import { SaleRepository } from 'src/repositories/sale.repository';
+import { ServiceRepository } from 'src/repositories/service.repository';
 import { SettingsRepository } from 'src/repositories/settings.repository';
 import { ShopInventoryRepository } from 'src/repositories/shop-inventory.repository';
 import { ShopRepository } from 'src/repositories/shop.repository';
@@ -46,6 +52,7 @@ import {
   toCustomerInfo,
   toInventoryInfo,
   toPaginationInfo,
+  toServiceInfo,
   toShopInfo,
   toUserInfo,
   toVendorInfo,
@@ -75,6 +82,7 @@ export class SaleService {
     private readonly paymentTransactionService: PaymentTransactionService,
     private readonly settingsRepository: SettingsRepository,
     private readonly saleProfitService: SaleProfitService,
+    private readonly serviceRepository: ServiceRepository,
   ) {}
 
   //get by id
@@ -394,6 +402,35 @@ export class SaleService {
     return this.saleProfitService.getProfitAndLoss(scoped);
   }
 
+  //revenue per payment method over the same shop/date scope getStats
+  //supports - see SaleRepository.getPaymentMethodBreakdown
+  async getPaymentMethodBreakdown(
+    filter: SaleFilter,
+    requesterId: string,
+  ): Promise<ApiResponseDto<PaymentMethodBreakdownPoint[]>> {
+    try {
+      const shopId = await resolveRequesterShopId(
+        requesterId,
+        this.userRepository,
+      );
+      const scoped = shopId ? { ...filter, shopId } : filter;
+      const breakdown =
+        await this.saleRepository.getPaymentMethodBreakdown(scoped);
+      return CommonResponses.OkResponse<PaymentMethodBreakdownPoint[]>(
+        breakdown,
+      );
+    } catch (error) {
+      this.logger.error(
+        'an error occurred while getting the payment method breakdown',
+        filter,
+        error,
+      );
+      return CommonResponses.InternalServerErrorResponse<
+        PaymentMethodBreakdownPoint[]
+      >('An error occurred while getting the payment method breakdown');
+    }
+  }
+
   // Restores every line of a voided sale back into the shop's stock - the
   // exact mirror of create()'s deduction (a positive delta here, negative
   // there) and the same snippet PaymentTransactionService.voidPendingSale
@@ -598,63 +635,47 @@ export class SaleService {
         );
       }
 
-      const ids = request.items.map((i) => i.inventoryId);
-      if (new Set(ids).size !== ids.length) {
+      // A sale is either for physical products or for a service (e.g.
+      // Grinding, Mixing) - never both in the same transaction, so the two
+      // item arrays are mutually exclusive here, not merely both-optional.
+      const hasItems = (request.items?.length ?? 0) > 0;
+      const hasServiceItems = (request.serviceItems?.length ?? 0) > 0;
+      if (hasItems === hasServiceItems) {
         return CommonResponses.BadRequestResponse<Sale>(
           undefined,
-          'The same item appears more than once in this sale',
+          hasItems
+            ? "A sale can't combine products and a service - ring them up separately"
+            : 'A sale needs at least one item or service',
         );
       }
 
-      const items: SaleItem[] = [];
-      const profitItems: SaleProfitItem[] = [];
-      for (const line of request.items) {
-        const inventory = await this.inventoryRepository.getById(
-          line.inventoryId,
-        );
-        if (!inventory) {
-          return CommonResponses.NotFoundResponse<Sale>(
-            'One of the items in this sale no longer exists',
-          );
-        }
+      let items: SaleItem[] = [];
+      let serviceItems: ServiceSaleItem[] = [];
+      let profitItems: SaleProfitItem[] = [];
 
-        const stock = await this.shopInventoryRepository.getByShopAndInventory(
+      if (hasItems) {
+        const resolved = await this.resolveSaleItems(
           request.shopId,
-          line.inventoryId,
+          request.items,
         );
-        if (!stock || stock.quantity < line.quantity) {
-          return CommonResponses.BadRequestResponse<Sale>(
-            undefined,
-            `${inventory.name} doesn't have enough stock at this shop (have ${stock?.quantity ?? 0}, need ${line.quantity})`,
-          );
-        }
-
-        const unitPrice = inventory.price;
-        items.push({
-          inventoryId: inventory.id,
-          inventoryInfoSnapshot: toInventoryInfo(inventory),
-          quantity: line.quantity,
-          unitPrice,
-          lineTotal: Math.round(unitPrice * line.quantity * 100) / 100,
-        });
-
-        // Cost stays off SaleItem entirely - see SaleProfitItem's own
-        // comment for why - and is captured here, live off Inventory, since
-        // costPrice can change later and this snapshot must not.
-        const costPrice = inventory.costPrice ?? 0;
-        profitItems.push({
-          inventoryId: inventory.id,
-          name: inventory.name,
-          quantity: line.quantity,
-          unitPrice,
-          costPrice,
-          revenue: Math.round(unitPrice * line.quantity * 100) / 100,
-          cost: Math.round(costPrice * line.quantity * 100) / 100,
-        });
+        if (!('ok' in resolved)) return resolved;
+        items = resolved.items;
+        profitItems = resolved.profitItems;
+      } else {
+        const resolved = await this.resolveServiceSaleItems(
+          request.serviceItems,
+        );
+        if (!('ok' in resolved)) return resolved;
+        serviceItems = resolved.items;
+        profitItems = resolved.profitItems;
       }
 
       const subtotal =
-        Math.round(items.reduce((sum, i) => sum + i.lineTotal, 0) * 100) / 100;
+        Math.round(
+          (items.reduce((sum, i) => sum + i.lineTotal, 0) +
+            serviceItems.reduce((sum, i) => sum + i.lineTotal, 0)) *
+            100,
+        ) / 100;
       const discount = Math.min(Math.max(request.discount ?? 0, 0), subtotal);
 
       if (discount > 0) {
@@ -859,6 +880,7 @@ export class SaleService {
         cashierInfoSnapshot: toUserInfo(cashier, cashierRole?.name),
         receiptNo,
         items,
+        serviceItems,
         subtotal,
         discount,
         total,
@@ -953,6 +975,149 @@ export class SaleService {
         'An error occurred while creating sale',
       );
     }
+  }
+
+  //validates stock and resolves each product line's price/cost - used by
+  //create() for a product sale (request.items)
+  private async resolveSaleItems(
+    shopId: string,
+    lines: SaleItemRequest[],
+  ): Promise<
+    | { ok: true; items: SaleItem[]; profitItems: SaleProfitItem[] }
+    | ApiResponseDto<Sale>
+  > {
+    const ids = lines.map((i) => i.inventoryId);
+    if (new Set(ids).size !== ids.length) {
+      return CommonResponses.BadRequestResponse<Sale>(
+        undefined,
+        'The same item appears more than once in this sale',
+      );
+    }
+
+    const items: SaleItem[] = [];
+    const profitItems: SaleProfitItem[] = [];
+    for (const line of lines) {
+      const inventory = await this.inventoryRepository.getById(
+        line.inventoryId,
+      );
+      if (!inventory) {
+        return CommonResponses.NotFoundResponse<Sale>(
+          'One of the items in this sale no longer exists',
+        );
+      }
+
+      const stock = await this.shopInventoryRepository.getByShopAndInventory(
+        shopId,
+        line.inventoryId,
+      );
+      if (!stock || stock.quantity < line.quantity) {
+        return CommonResponses.BadRequestResponse<Sale>(
+          undefined,
+          `${inventory.name} doesn't have enough stock at this shop (have ${stock?.quantity ?? 0}, need ${line.quantity})`,
+        );
+      }
+
+      const unitPrice = inventory.price;
+      items.push({
+        inventoryId: inventory.id,
+        inventoryInfoSnapshot: toInventoryInfo(inventory),
+        quantity: line.quantity,
+        unitPrice,
+        lineTotal: Math.round(unitPrice * line.quantity * 100) / 100,
+      });
+
+      // Cost stays off SaleItem entirely - see SaleProfitItem's own
+      // comment for why - and is captured here, live off Inventory, since
+      // costPrice can change later and this snapshot must not.
+      const costPrice = inventory.costPrice ?? 0;
+      profitItems.push({
+        inventoryId: inventory.id,
+        name: inventory.name,
+        quantity: line.quantity,
+        unitPrice,
+        costPrice,
+        revenue: Math.round(unitPrice * line.quantity * 100) / 100,
+        cost: Math.round(costPrice * line.quantity * 100) / 100,
+      });
+    }
+
+    return { ok: true, items, profitItems };
+  }
+
+  //resolves each service line's price - used by create() for a service
+  //sale (request.serviceItems). No stock to check and no cost, since a
+  //service has no COGS - see SaleProfitItem's own comment.
+  private async resolveServiceSaleItems(
+    lines: ServiceSaleItemRequest[],
+  ): Promise<
+    | { ok: true; items: ServiceSaleItem[]; profitItems: SaleProfitItem[] }
+    | ApiResponseDto<Sale>
+  > {
+    // Keyed on serviceId+feeLabel, not just serviceId - a customer can
+    // legitimately bring both a Full bag and a Half bag of the same
+    // service in one sale, which are two distinct lines/fee tiers.
+    const ids = lines.map((i) => `${i.serviceId}::${i.feeLabel ?? ''}`);
+    if (new Set(ids).size !== ids.length) {
+      return CommonResponses.BadRequestResponse<Sale>(
+        undefined,
+        'The same service and fee appear more than once in this sale',
+      );
+    }
+
+    const items: ServiceSaleItem[] = [];
+    const profitItems: SaleProfitItem[] = [];
+    for (const line of lines) {
+      const service = await this.serviceRepository.getById(line.serviceId);
+      if (!service) {
+        return CommonResponses.NotFoundResponse<Sale>(
+          'One of the services in this sale no longer exists',
+        );
+      }
+      if (service.status === ServiceStatus.Inactive) {
+        return CommonResponses.BadRequestResponse<Sale>(
+          undefined,
+          `${service.name} isn't currently offered`,
+        );
+      }
+
+      // No feeLabel -> the service's base price/unitValue. Otherwise, it
+      // must name one of the service's current specialFees - never a
+      // client-supplied amount.
+      let unitPrice = service.price;
+      if (line.feeLabel) {
+        const specialFee = service.specialFees?.find(
+          (f) => f.label === line.feeLabel,
+        );
+        if (!specialFee) {
+          return CommonResponses.BadRequestResponse<Sale>(
+            undefined,
+            `${service.name} has no "${line.feeLabel}" fee`,
+          );
+        }
+        unitPrice = specialFee.fee;
+      }
+
+      const lineTotal = Math.round(unitPrice * line.quantity * 100) / 100;
+      items.push({
+        serviceId: service.id,
+        serviceInfoSnapshot: toServiceInfo(service),
+        feeLabel: line.feeLabel ?? null,
+        quantity: line.quantity,
+        unitPrice,
+        lineTotal,
+      });
+      profitItems.push({
+        serviceId: service.id,
+        name: service.name,
+        quantity: line.quantity,
+        unitPrice,
+        costPrice: 0,
+        revenue: lineTotal,
+        cost: 0,
+      });
+    }
+
+    return { ok: true, items, profitItems };
   }
 
   //e.g. "MAD-000123" - prefers the shop's saved receiptPrefix, otherwise

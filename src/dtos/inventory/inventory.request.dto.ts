@@ -62,22 +62,35 @@ export class InventoryRequest {
   status?: InventoryStatus;
 
   // On create, paired with `supplierId` below to log the initial quantity as
-  // a delivery. On update it's a manual correction only - the normal way
-  // this gets set afterwards is a SupplyRequest approval (see
+  // a delivery. On update, just the item's own shelf-life date - the normal
+  // way this gets set afterwards is a SupplyRequest approval (see
   // SupplyRequestItemRequest.expiryDate).
   @ApiProperty({ required: false })
   @IsOptional()
   @IsDateString()
   expiryDate?: string;
 
-  // Create only - if set alongside a positive `quantity`, that initial
-  // stock is logged as a delivery from this supplier (a SupplierLedgerEntry
-  // Bill + a SupplierInventoryLedgerEntry), the same as approving a
-  // SupplyRequest does. Ignored on update - InventoryService.update() never
-  // reads it, since an edit's `quantity` overwrites the total rather than
-  // representing a new delivery.
+  // If set alongside a `quantity` that's higher than the item's current
+  // one, that increase is logged as a delivery from this supplier (a
+  // SupplierLedgerEntry Bill + a SupplierInventoryLedgerEntry) - on create,
+  // the increase is the full initial quantity; on update, just the delta
+  // (see InventoryService.update). Ignored if quantity isn't increasing.
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
   supplierId?: string;
+
+  // Update only - the business date this quantity change reflects, and why.
+  // Not stored on the item itself; see InventoryAdjustment, the only place
+  // either is actually captured (the generic AuditLog entry this same
+  // request also produces has no room for request-specific detail).
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsDateString()
+  adjustmentDate?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  adjustmentNote?: string;
 }

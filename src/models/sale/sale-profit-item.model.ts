@@ -13,9 +13,16 @@ import { ApiProperty } from '@nestjs/swagger';
 // decorated with @Schema(); without it this embeds as empty.
 @Schema({ _id: false })
 export class SaleProfitItem {
-  @Prop({ required: true })
+  // Exactly one of inventoryId/serviceId is set, mirroring Sale's own
+  // items/serviceItems split - a service line has no inventory, so
+  // inventoryId stays unset and costPrice/cost are always 0 (no COGS).
+  @Prop({ default: null })
   @ApiProperty()
-  inventoryId: string;
+  inventoryId?: string;
+
+  @Prop({ default: null })
+  @ApiProperty()
+  serviceId?: string;
 
   @Prop({ required: true })
   @ApiProperty()
