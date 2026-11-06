@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { PagedResults } from 'src/dtos/common/paged.results.dto';
 import { UserResponse } from 'src/dtos/user/user.response.dto';
 import { CustomerInfo } from 'src/models/customer/customer-info.model';
 import { InventoryInfo } from 'src/models/inventory/inventory-info.model';
@@ -35,7 +36,7 @@ export function isValidPhoneNumber(
   return isValidPhoneNumberLib(phone, defaultCountry);
 }
 
-export function toInternationalPhoneNumber(
+function toInternationalPhoneNumber(
   phone: string,
   defaultCountry: CountryCode = DEFAULT_PHONE_COUNTRY,
 ): string | null {
@@ -189,6 +190,29 @@ export function toPaginationInfo(object: any): {
     page: !isNaN(page) ? parseInt(page) : 1,
     pageSize: !isNaN(pageSize) ? parseInt(pageSize) : 10,
   };
+}
+
+export function toPagedResults<T>(
+  results: T[],
+  totalCount: number,
+  page: number,
+  pageSize: number,
+): PagedResults<T> {
+  return {
+    results,
+    totalCount,
+    totalPages: Math.ceil(totalCount / pageSize),
+    page,
+    pageSize,
+  };
+}
+
+export async function withCount<T>(
+  find: Promise<T[]>,
+  count: Promise<number>,
+): Promise<{ results: T[]; totalCount: number }> {
+  const [results, totalCount] = await Promise.all([find, count]);
+  return { results, totalCount };
 }
 
 // Shared Day/Week/Month time-bucketing for trend endpoints (ledger cash
