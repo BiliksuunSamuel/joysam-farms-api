@@ -4,14 +4,19 @@ import { PagedResults } from 'src/dtos/common/paged.results.dto';
 import { CustomerFilter } from 'src/dtos/customer/customer.filter.dto';
 import { CustomerRequest } from 'src/dtos/customer/customer.request.dto';
 import { CommonResponses } from 'src/helper/common.responses.helper';
+import { CustomerResponse } from 'src/dtos/customer/customer.response.dto';
 import { CustomerRepository } from 'src/repositories/customer.repository';
+import { SaleRepository } from 'src/repositories/sale.repository';
 import { Customer } from 'src/schemas/customer.schema';
 import { toPaginationInfo } from 'src/utils';
 
 @Injectable()
 export class CustomerService {
   private readonly logger = new Logger(CustomerService.name);
-  constructor(private readonly customerRepository: CustomerRepository) {}
+  constructor(
+    private readonly customerRepository: CustomerRepository,
+    private readonly saleRepository: SaleRepository,
+  ) {}
 
   //get by id
   async getById(id: string): Promise<ApiResponseDto<Customer>> {
@@ -36,12 +41,24 @@ export class CustomerService {
   //list, with search over name/phone
   async list(
     filter: CustomerFilter,
-  ): Promise<ApiResponseDto<PagedResults<Customer>>> {
+  ): Promise<ApiResponseDto<PagedResults<CustomerResponse>>> {
     try {
       const { page, pageSize } = toPaginationInfo(filter);
-      const { results, totalCount } =
+      const { results: customers, totalCount } =
         await this.customerRepository.list(filter);
-      return CommonResponses.OkResponse<PagedResults<Customer>>({
+      // One aggregate for the whole page, not one query per customer.
+      const stats = await this.saleRepository.getCustomerStats(
+        customers.map((c) => c.id),
+      );
+      const results: CustomerResponse[] = customers.map((c) => {
+        const s = stats.get(c.id);
+        return Object.assign(c, {
+          salesCount: s?.salesCount ?? 0,
+          totalSpent: s?.totalSpent ?? 0,
+          lastPurchaseAt: s?.lastPurchaseAt ?? null,
+        });
+      });
+      return CommonResponses.OkResponse<PagedResults<CustomerResponse>>({
         results,
         totalCount,
         totalPages: Math.ceil(totalCount / pageSize),
@@ -55,7 +72,7 @@ export class CustomerService {
         error,
       );
       return CommonResponses.InternalServerErrorResponse<
-        PagedResults<Customer>
+        PagedResults<CustomerResponse>
       >('An error occurred while listing customers');
     }
   }

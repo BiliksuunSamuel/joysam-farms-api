@@ -169,6 +169,49 @@ export class SaleRepository {
     return { results, totalCount };
   }
 
+  // Completed-sale totals for a set of customers in one query - used to
+  // decorate a page of the customers list (sales count, total spent, last
+  // purchase) without a query per customer. Voided and still-pending sales
+  // never count, same as revenue everywhere else.
+  async getCustomerStats(
+    customerIds: string[],
+  ): Promise<
+    Map<
+      string,
+      { salesCount: number; totalSpent: number; lastPurchaseAt: Date | null }
+    >
+  > {
+    const stats = new Map<
+      string,
+      { salesCount: number; totalSpent: number; lastPurchaseAt: Date | null }
+    >();
+    if (customerIds.length === 0) return stats;
+    const rows = await this.saleRepository.aggregate([
+      {
+        $match: {
+          customerId: { $in: customerIds },
+          status: SaleStatus.Completed,
+        },
+      },
+      {
+        $group: {
+          _id: '$customerId',
+          salesCount: { $sum: 1 },
+          totalSpent: { $sum: '$total' },
+          lastPurchaseAt: { $max: '$createdAt' },
+        },
+      },
+    ]);
+    for (const row of rows) {
+      stats.set(row._id, {
+        salesCount: row.salesCount,
+        totalSpent: Math.round(row.totalSpent * 100) / 100,
+        lastPurchaseAt: row.lastPurchaseAt ?? null,
+      });
+    }
+    return stats;
+  }
+
   // Aggregated metrics for a filtered view of sales - shop/cashier/
   // customer/payment method/date range, same as list()'s own filters, but
   // deliberately not status: Completed and Voided are always broken out
