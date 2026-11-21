@@ -340,16 +340,25 @@ export function isoWeekKey(date: Date): string {
 
 /**
  * The shopId a request should be forced to, or null if the requester isn't
- * tied to one shop and can see whatever they're permitted to. A shop-scoped
- * employee never gets to choose - their own fresh shopId always overrides
- * whatever the client asked for, the same way GET my-shop already works
- * (see AuthenticationController.myShop). Structurally typed rather than
- * importing UserRepository, to avoid a circular import back into utils.
+ * restricted to one shop and can see whatever they're permitted to. A
+ * shop-scoped employee never gets to choose - their own fresh shopId always
+ * overrides whatever the client asked for, the same way GET my-shop already
+ * works (see AuthenticationController.myShop).
+ *
+ * A user with allPermissions is never forced into their default shop: having
+ * a shopId only sets their home shop, it doesn't cap what they may view.
+ * Structurally typed rather than importing UserRepository, to avoid a
+ * circular import back into utils.
  */
 export async function resolveRequesterShopId(
   requesterId: string,
-  userRepository: { getById(id: string): Promise<{ shopId?: string } | null> },
+  userRepository: {
+    getById(
+      id: string,
+    ): Promise<{ shopId?: string; allPermissions?: boolean } | null>;
+  },
 ): Promise<string | null> {
   const requester = await userRepository.getById(requesterId);
+  if (requester?.allPermissions) return null;
   return requester?.shopId || null;
 }
