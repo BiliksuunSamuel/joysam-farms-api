@@ -23,9 +23,9 @@ export class SaleRequest {
   @IsString()
   shopId: string;
 
-  // Exactly one of items/serviceItems must be provided, never both, never
-  // neither - enforced in SaleService.create (a business rule, not
-  // something class-validator's per-field decorators express well here).
+  // items and serviceItems can be combined on one sale, but at least one of
+  // the two must be non-empty - enforced in SaleService.create (a business
+  // rule, not something class-validator's per-field decorators express well).
   @ApiProperty({ type: [SaleItemRequest], required: false })
   @IsOptional()
   @IsArray()

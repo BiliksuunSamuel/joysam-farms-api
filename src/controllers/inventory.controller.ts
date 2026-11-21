@@ -84,9 +84,13 @@ export class InventoryController {
   )
   async bulkCreate(
     @UploadedFile() file: Express.Multer.File,
+    @Body('supplierId') supplierId: string | undefined,
     @Res() response: Response,
   ) {
-    const res = await this.inventoryService.bulkCreate(file?.buffer);
+    const res = await this.inventoryService.bulkCreate(
+      file?.buffer,
+      supplierId || undefined,
+    );
     response.status(res.code).send(res);
   }
 

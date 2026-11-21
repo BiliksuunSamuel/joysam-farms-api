@@ -6,8 +6,8 @@ const ServiceInfoSchema = SchemaFactory.createForClass(ServiceInfo);
 
 // One line of a Sale: a quantity of one service, sold at its price at the
 // time of sale (never trusted from the client - resolved server-side) -
-// the service equivalent of SaleItem. A Sale has either `items` or
-// `serviceItems`, never both - see SaleService.create.
+// the service equivalent of SaleItem. A Sale can carry `items`,
+// `serviceItems`, or both - see SaleService.create.
 //
 // @Schema() is required even though this is never a top-level collection -
 // see SaleItem's own comment for why.

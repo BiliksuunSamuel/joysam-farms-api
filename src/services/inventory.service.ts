@@ -364,14 +364,23 @@ export class InventoryService {
   //generateBulkTemplate for the expected shape) - creates every valid row
   //and reports the rest as per-row errors, rather than failing the whole
   //upload over one bad row
+  // When a supplierId is given, every row's initial quantity is logged as a
+  // delivery from that supplier and billed at costPrice x quantity - same
+  // bookkeeping create() does for a single item.
   async bulkCreate(
     file: Buffer | undefined,
+    supplierId?: string,
   ): Promise<ApiResponseDto<BulkInventoryResult>> {
     try {
       if (!file) {
         return CommonResponses.BadRequestResponse<BulkInventoryResult>(
           undefined,
           'No file was uploaded',
+        );
+      }
+      if (supplierId && !(await this.supplierRepository.getById(supplierId))) {
+        return CommonResponses.NotFoundResponse<BulkInventoryResult>(
+          'Supplier not found',
         );
       }
 
@@ -458,6 +467,7 @@ export class InventoryService {
           costPrice: numbers.costPrice,
           quantity: numbers.quantity,
           reorderLevel: numbers.reorderLevel,
+          supplierId,
         });
 
         if (res.data) {

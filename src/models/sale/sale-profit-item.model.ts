@@ -14,7 +14,7 @@ import { ApiProperty } from '@nestjs/swagger';
 @Schema({ _id: false })
 export class SaleProfitItem {
   // Exactly one of inventoryId/serviceId is set, mirroring Sale's own
-  // items/serviceItems split - a service line has no inventory, so
+  // items/serviceItems split (both can be on one sale) - a service line has no inventory, so
   // inventoryId stays unset and costPrice/cost are always 0 (no COGS).
   @Prop({ default: null })
   @ApiProperty()

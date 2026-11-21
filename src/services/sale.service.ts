@@ -635,23 +635,21 @@ export class SaleService {
         );
       }
 
-      // A sale is either for physical products or for a service (e.g.
-      // Grinding, Mixing) - never both in the same transaction, so the two
-      // item arrays are mutually exclusive here, not merely both-optional.
+      // One sale (one invoice) can mix physical products and services (e.g.
+      // Grinding, Mixing) - each array is resolved on its own, but it needs
+      // at least one line between them.
       const hasItems = (request.items?.length ?? 0) > 0;
       const hasServiceItems = (request.serviceItems?.length ?? 0) > 0;
-      if (hasItems === hasServiceItems) {
+      if (!hasItems && !hasServiceItems) {
         return CommonResponses.BadRequestResponse<Sale>(
           undefined,
-          hasItems
-            ? "A sale can't combine products and a service - ring them up separately"
-            : 'A sale needs at least one item or service',
+          'A sale needs at least one item or service',
         );
       }
 
       let items: SaleItem[] = [];
       let serviceItems: ServiceSaleItem[] = [];
-      let profitItems: SaleProfitItem[] = [];
+      const profitItems: SaleProfitItem[] = [];
 
       if (hasItems) {
         const resolved = await this.resolveSaleItems(
@@ -660,14 +658,15 @@ export class SaleService {
         );
         if (!('ok' in resolved)) return resolved;
         items = resolved.items;
-        profitItems = resolved.profitItems;
-      } else {
+        profitItems.push(...resolved.profitItems);
+      }
+      if (hasServiceItems) {
         const resolved = await this.resolveServiceSaleItems(
           request.serviceItems,
         );
         if (!('ok' in resolved)) return resolved;
         serviceItems = resolved.items;
-        profitItems = resolved.profitItems;
+        profitItems.push(...resolved.profitItems);
       }
 
       const subtotal =

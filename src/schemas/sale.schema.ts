@@ -46,9 +46,9 @@ export class Sale extends BaseSchema {
   @ApiProperty()
   receiptNo: string;
 
-  // Exactly one of items/serviceItems is ever non-empty - a sale is either
-  // for physical products or for a service (e.g. Grinding, Mixing), never
-  // both in the same transaction (see SaleService.create).
+  // A sale can hold physical products, services (e.g. Grinding, Mixing), or
+  // both on the same invoice - at least one is non-empty (see
+  // SaleService.create).
   @Prop({ type: [SaleItemSchema], default: [] })
   @ApiProperty({ type: [SaleItem] })
   items: SaleItem[];

@@ -7,8 +7,8 @@ import { ServiceSpecialFee } from 'src/models/service/service-special-fee.model'
 const ServiceSpecialFeeSchema = SchemaFactory.createForClass(ServiceSpecialFee);
 
 // A company-wide offering that isn't a physical product (e.g. Grinding,
-// Mixing) - sold through Sale.serviceItems, never mixed with Sale.items in
-// the same transaction (see SaleService.create).
+// Mixing) - sold through Sale.serviceItems, which can share one Sale with
+// Sale.items (see SaleService.create).
 @Schema()
 export class Service extends BaseSchema {
   @Prop({ required: true })
