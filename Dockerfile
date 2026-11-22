@@ -25,6 +25,17 @@ FROM node:20-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
+# Receipts are rendered to PDF by headless Chromium (see InvoiceService). The
+# slim image has none of its shared libraries or any fonts, so install the
+# distro's Chromium (which pulls in everything it needs) plus Liberation
+# fonts - Liberation Mono is metric-compatible with Courier New, the
+# receipt's typeface. Use that Chromium instead of letting puppeteer download
+# its own, which would still be missing those libraries.
+RUN apt-get update && apt-get install -y --no-install-recommends chromium fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+ENV PUPPETEER_SKIP_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
 COPY package.json package-lock.json ./
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
     && npm ci --omit=dev \

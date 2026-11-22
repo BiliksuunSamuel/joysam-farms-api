@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import puppeteer, { Browser } from 'puppeteer';
 import { SettingsRepository } from 'src/repositories/settings.repository';
 import { Sale } from 'src/schemas/sale.schema';
@@ -25,7 +30,13 @@ export class InvoiceService implements OnModuleDestroy {
         .launch({
           headless: true,
           // containers usually run as root, where Chromium's sandbox can't start
-          args: ['--no-sandbox', '--disable-setuid-sandbox'],
+          // (and /dev/shm is tiny there, so keep Chromium's scratch space off it)
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+          ],
         })
         .then((browser) => {
           browser.on('disconnected', () => (this.browser = null));
@@ -40,6 +51,23 @@ export class InvoiceService implements OnModuleDestroy {
   }
 
   async buildSaleInvoice(sale: Sale): Promise<Buffer> {
+    try {
+      return await this.render(sale);
+    } catch (error) {
+      // A missing Chromium, a missing system library or an out-of-memory
+      // kill all land here - log the real cause (the generic 500 hides it)
+      // and answer with something a person can act on.
+      this.logger.error(
+        `could not render the receipt PDF for ${sale.receiptNo} - is Chromium installed (PUPPETEER_EXECUTABLE_PATH) and is there enough memory?`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw new ServiceUnavailableException(
+        'The receipt could not be created right now. Please try again, or print it from the sales screen.',
+      );
+    }
+  }
+
+  private async render(sale: Sale): Promise<Buffer> {
     const settings = await this.settingsRepository.get();
     const html = renderReceiptHtml(sale, settings);
 
