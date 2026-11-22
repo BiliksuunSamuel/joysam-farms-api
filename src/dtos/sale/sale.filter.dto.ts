@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsEnum, IsOptional, IsString } from 'class-validator';
 import { BaseFilter } from 'src/dtos/common/base.filter.dto';
-import { SalePaymentMethod, SaleStatus } from 'src/enums';
+import { SaleKind, SalePaymentMethod, SaleStatus } from 'src/enums';
 
 export class SaleFilter extends BaseFilter {
   @ApiProperty({ required: false })
@@ -28,4 +28,9 @@ export class SaleFilter extends BaseFilter {
   @IsOptional()
   @IsEnum(SaleStatus)
   status?: SaleStatus;
+
+  @ApiProperty({ enum: SaleKind, required: false })
+  @IsOptional()
+  @IsEnum(SaleKind)
+  kind?: SaleKind;
 }

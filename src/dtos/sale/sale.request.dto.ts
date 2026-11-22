@@ -114,4 +114,13 @@ export class SaleRequest {
   @IsOptional()
   @IsString()
   note?: string;
+
+  // Pay by instalments instead of in full - see InstalmentSaleService. The
+  // paymentMethod (Cash or MobileMoney only) then pays the deposit, if the
+  // plan has one; the goods are reserved but not handed over until the last
+  // instalment is paid.
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  instalmentPlanId?: string;
 }

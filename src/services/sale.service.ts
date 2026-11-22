@@ -16,6 +16,7 @@ import { VoidRequestFilter } from 'src/dtos/sale/void-request.filter.dto';
 import {
   DiscountLimitType,
   LedgerSource,
+  MomoMode,
   SalePaymentMethod,
   ServiceStatus,
   SaleStatus,
@@ -30,6 +31,7 @@ import { SaleProfitItem } from 'src/models/sale/sale-profit-item.model';
 import { ServiceSaleItem } from 'src/models/sale/service-sale-item.model';
 import { VoidRequest } from 'src/models/sale/void-request.model';
 import { CategoryRepository } from 'src/repositories/category.repository';
+import { InstalmentSaleService } from 'src/services/instalment-sale.service';
 import { CounterRepository } from 'src/repositories/counter.repository';
 import { InventoryRepository } from 'src/repositories/inventory.repository';
 import { RoleRepository } from 'src/repositories/role.repository';
@@ -56,6 +58,7 @@ import {
   toShopInfo,
   toUserInfo,
   toVendorInfo,
+  buildReceiptNo,
 } from 'src/utils';
 
 // A void has to be requested within this many hours of the sale itself -
@@ -83,6 +86,7 @@ export class SaleService {
     private readonly settingsRepository: SettingsRepository,
     private readonly saleProfitService: SaleProfitService,
     private readonly serviceRepository: ServiceRepository,
+    private readonly instalmentSaleService: InstalmentSaleService,
   ) {}
 
   //get by id
@@ -702,6 +706,61 @@ export class SaleService {
 
       const total = Math.round((subtotal - discount) * 100) / 100;
 
+      // Pay over time instead of in full: the goods are reserved and only the
+      // deposit (if the plan has one) is taken now - none of the full-payment
+      // checks below apply. See InstalmentSaleService.
+      if (request.instalmentPlanId) {
+        const customer = await this.customerService.findOrCreateForSale({
+          name: request.customerName,
+          phone: request.customerPhone,
+        });
+        const cashier = await this.userRepository.getById(cashierId);
+        if (!cashier) {
+          return CommonResponses.NotFoundResponse<Sale>('Cashier not found');
+        }
+        const cashierRole = cashier.roleId
+          ? await this.roleRepository.getById(cashier.roleId)
+          : null;
+        return await this.instalmentSaleService.start({
+          request,
+          shop,
+          cashier,
+          cashierRoleName: cashierRole?.name,
+          customer,
+          items,
+          serviceItems,
+          goodsCost:
+            Math.round(
+              profitItems.reduce((sum, i) => sum + i.cost, 0) * 100,
+            ) / 100,
+          subtotal,
+          discount,
+          total,
+        });
+      }
+
+      // Mobile money is either collected through Paystack (Digital, also the
+      // Digital leg of a Split) or paid straight to the business's own number
+      // and confirmed at the till (MobileMoney) - Settings picks which, so a
+      // client stuck on the wrong one can't be bypassed from the API.
+      const momoManual = settings?.momoMode === MomoMode.Manual;
+      if (
+        momoManual &&
+        (request.paymentMethod === SalePaymentMethod.Digital ||
+          request.paymentMethod === SalePaymentMethod.Split)
+      ) {
+        return CommonResponses.BadRequestResponse<Sale>(
+          undefined,
+          'Digital mobile money is switched off. Take the payment on the business mobile money number instead.',
+        );
+      }
+      if (!momoManual && request.paymentMethod === SalePaymentMethod.MobileMoney) {
+        return CommonResponses.BadRequestResponse<Sale>(
+          undefined,
+          'Manual mobile money is not switched on in Settings',
+        );
+      }
+
       const isCredit = request.paymentMethod === SalePaymentMethod.Credit;
       const isDigital = request.paymentMethod === SalePaymentMethod.Digital;
       const isSplit = request.paymentMethod === SalePaymentMethod.Split;
@@ -1122,14 +1181,7 @@ export class SaleService {
   //e.g. "MAD-000123" - prefers the shop's saved receiptPrefix, otherwise
   //falls back to a readable prefix derived from its name; gapless per shop
   private async generateReceiptNo(shop: Shop): Promise<string> {
-    const prefix =
-      shop.receiptPrefix?.toUpperCase() ||
-      shop.name
-        .replace(/[^A-Za-z]/g, '')
-        .slice(0, 3)
-        .toUpperCase() ||
-      'SHP';
     const seq = await this.counterRepository.next(`sale:${shop.id}`);
-    return `${prefix}-${String(seq).padStart(6, '0')}`;
+    return buildReceiptNo(shop, seq);
   }
 }

@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiParam, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
+import { InvoiceService } from 'src/services/invoice.service';
 import { AuditLog } from 'src/decorators/audit-log.decorator';
 import { UserJwtDetails } from 'src/dtos/auth/user.jwt.details';
 import { SaleFilter } from 'src/dtos/sale/sale.filter.dto';
@@ -29,7 +30,10 @@ import { SaleService } from 'src/services/sale.service';
 @ApiBearerAuth('Authorization')
 @UseInterceptors(AuditLogInterceptor)
 export class SaleController {
-  constructor(private readonly saleService: SaleService) {}
+  constructor(
+    private readonly saleService: SaleService,
+    private readonly invoiceService: InvoiceService,
+  ) {}
 
   @Get()
   @AuthPermissions('sale.view')
@@ -104,6 +108,32 @@ export class SaleController {
   ) {
     const res = await this.saleService.listVoidRequests(filter, user.id);
     response.status(res.code).send(res);
+  }
+
+  // The sale as a downloadable PDF invoice (or payment receipt, for a
+  // vendor's debt payment). Same access rules as fetching the sale itself.
+  @Get(':id/invoice')
+  @AuthPermissions('sale.view')
+  @ApiParam({ name: 'id', type: String })
+  async getInvoice(
+    @Param('id') id: string,
+    @AuthUser() user: UserJwtDetails,
+    @Res() response: Response,
+  ) {
+    const res = await this.saleService.getById(id, user.id);
+    if (res.code !== 200 || !res.data) {
+      response.status(res.code).send(res);
+      return;
+    }
+    const pdf = await this.invoiceService.buildSaleInvoice(res.data);
+    response
+      .status(200)
+      .set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${res.data.receiptNo}.pdf"`,
+        'Content-Length': pdf.length,
+      })
+      .send(pdf);
   }
 
   @Get(':id')

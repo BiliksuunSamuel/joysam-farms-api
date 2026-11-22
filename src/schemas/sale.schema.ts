@@ -1,7 +1,13 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { ApiProperty } from '@nestjs/swagger';
 import { BaseSchema } from '.';
-import { SalePaymentMethod, SaleStatus } from 'src/enums';
+import {
+  InstalmentFrequency,
+  InstalmentStatus,
+  SaleKind,
+  SalePaymentMethod,
+  SaleStatus,
+} from 'src/enums';
 import { CustomerInfo } from 'src/models/customer/customer-info.model';
 import { ShopInfo } from 'src/models/shop/shop-info.model';
 import { UserInfo } from 'src/models/user/user-info.model';
@@ -109,7 +115,70 @@ export class Sale extends BaseSchema {
   @ApiProperty({ enum: SaleStatus })
   status: SaleStatus;
 
-  // Credit only - the vendor this sale was billed to.
+  // Sale (default, and what every pre-existing record is) or DebtPayment -
+  // see SaleKind. A DebtPayment has no items, is never voided and is
+  // excluded from revenue.
+  @Prop({ type: String, enum: SaleKind, default: SaleKind.Sale })
+  @ApiProperty({ enum: SaleKind })
+  kind: SaleKind;
+
+  // DebtPayment only - which of the vendor's credit sales this payment
+  // settled, and their balance before/after it.
+  @Prop({ type: Object, default: null })
+  @ApiProperty({ required: false })
+  debtSettlement: {
+    allocations: { referenceId: string; amount: number }[];
+    balanceBefore: number;
+    balanceAfter: number;
+  } | null;
+
+  // InstalmentPayment only - the instalment sale this payment belongs to.
+  @Prop({ type: String, default: null })
+  @ApiProperty({ required: false })
+  parentSaleId: string | null;
+
+  // Instalment sales only (status Instalment) - the plan terms as they were
+  // at checkout, the payment schedule and where it stands. schedule[0] is
+  // the deposit (number 0) when the plan has one.
+  @Prop({ type: Object, default: null })
+  @ApiProperty({ required: false })
+  instalment: {
+    planId: string;
+    planName: string;
+    frequency: InstalmentFrequency;
+    instalmentCount: number;
+    depositPercent: number;
+    feePercent: number;
+    cancellationFeePercent: number;
+    // total + the plan's fee: what the buyer pays over the whole plan.
+    totalDue: number;
+    feeAmount: number;
+    // What the goods cost the business - revenue and profit are recognised
+    // per payment, in proportion to totalDue.
+    goodsCost: number;
+    paidTotal: number;
+    status: InstalmentStatus;
+    schedule: {
+      number: number;
+      dueDate: Date;
+      amount: number;
+      paidAmount: number;
+      paidAt: Date | null;
+    }[];
+    releasedAt?: Date | null;
+    releasedById?: string | null;
+    cancelledAt?: Date | null;
+    cancelledById?: string | null;
+    cancelReason?: string | null;
+    refundedAmount?: number;
+    // Cash or MobileMoney - how the refund was handed back. Plans cancelled
+    // before this was recorded have none, which reads as Cash.
+    refundMethod?: SalePaymentMethod;
+    retainedAmount?: number;
+  } | null;
+
+  // Credit only - the vendor this sale was billed to (for a DebtPayment, the
+  // vendor who paid).
   @Prop({ default: null })
   @ApiProperty()
   vendorId: string;

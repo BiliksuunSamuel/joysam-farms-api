@@ -113,6 +113,7 @@ export enum LedgerSource {
   Adjustment = 'Adjustment',
   VendorPayment = 'VendorPayment',
   SupplierPayment = 'SupplierPayment',
+  InstalmentRefund = 'InstalmentRefund',
 }
 
 export enum SalePaymentMethod {
@@ -135,6 +136,36 @@ export enum SalePaymentMethod {
   Split = 'Split',
 }
 
+// What a Sale record represents. A DebtPayment is a vendor paying down what
+// they owe (possibly at a different shop from where the credit sale was made):
+// it gets a receipt and shows in sales history, but it is NOT revenue - the
+// original credit sale already counted - so every revenue/profit/items/stock
+// query must exclude it (see EXCLUDE_DEBT_PAYMENTS in SaleRepository).
+export enum SaleKind {
+  Sale = 'Sale',
+  DebtPayment = 'DebtPayment',
+  // One payment (deposit or instalment) towards an instalment sale, or the
+  // cancellation fee kept when one is cancelled. Counted as revenue - cash
+  // basis, the money actually received - unlike its parent Sale, which sits
+  // in SaleStatus.Instalment and so is never counted itself.
+  InstalmentPayment = 'InstalmentPayment',
+}
+
+export enum InstalmentFrequency {
+  Weekly = 'Weekly',
+  Monthly = 'Monthly',
+}
+
+export enum InstalmentStatus {
+  // Still being paid off.
+  Active = 'Active',
+  // Fully paid, goods not handed over yet.
+  Paid = 'Paid',
+  // Fully paid and handed to the buyer.
+  Released = 'Released',
+  Cancelled = 'Cancelled',
+}
+
 export enum SaleStatus {
   // Digital only - created (and stock deducted) the instant the cashier
   // charges, but not yet paid. Every other payment method goes straight to
@@ -142,6 +173,10 @@ export enum SaleStatus {
   Pending = 'Pending',
   Completed = 'Completed',
   Voided = 'Voided',
+  // A sale being paid off by instalments - stock is already reserved for the
+  // buyer, but it is not revenue (its payments are, see
+  // SaleKind.InstalmentPayment), so no Completed-based query counts it.
+  Instalment = 'Instalment',
 }
 
 // A manual void request on a Completed sale - see Sale.voidRequest. Distinct
@@ -152,6 +187,15 @@ export enum VoidRequestStatus {
   Pending = 'Pending',
   Approved = 'Approved',
   Rejected = 'Rejected',
+}
+
+// How mobile money is taken at checkout. Digital: the customer is sent to
+// Paystack and the sale completes when it confirms. Manual: the customer
+// pays the business's own mobile money number (Settings.momo*), and the
+// cashier confirms receipt and completes the sale at the till.
+export enum MomoMode {
+  Digital = 'Digital',
+  Manual = 'Manual',
 }
 
 export enum VoidApprovalMode {
@@ -274,3 +318,9 @@ export enum DiscountLimitType {
   Flat = 'Flat',
   Percentage = 'Percentage',
 }
+
+// The note on the record a cancelled plan's kept fee is written as. That
+// record exists so the fee shows up as revenue, but no money comes in with it
+// (the fee was already in the till as part of earlier payments), so the day
+// close skips it when counting cash received.
+export const CANCELLATION_FEE_NOTE_PREFIX = 'Cancellation fee kept for';

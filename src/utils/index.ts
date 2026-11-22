@@ -95,6 +95,24 @@ export function toSupplierInfo(supplier): SupplierInfo {
   };
 }
 
+//e.g. "MAD-000123" - prefers the shop's saved receiptPrefix, otherwise falls
+//back to a readable prefix derived from its name. `seq` comes from the
+//shop's own `sale:<shopId>` counter, so sales and debt payments at one shop
+//share one gapless receipt sequence.
+export function buildReceiptNo(
+  shop: { name: string; receiptPrefix?: string },
+  seq: number,
+): string {
+  const prefix =
+    shop.receiptPrefix?.toUpperCase() ||
+    shop.name
+      .replace(/[^A-Za-z]/g, '')
+      .slice(0, 3)
+      .toUpperCase() ||
+    'SHP';
+  return `${prefix}-${String(seq).padStart(6, '0')}`;
+}
+
 //build a point-in-time snapshot of a vendor, for embedding on other documents
 export function toVendorInfo(vendor): VendorInfo {
   return {

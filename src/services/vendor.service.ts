@@ -6,16 +6,36 @@ import { VendorLedgerEntryFilter } from 'src/dtos/vendor/vendor-ledger-entry.fil
 import { VendorPaymentRequest } from 'src/dtos/vendor/vendor.payment.request.dto';
 import { VendorRequest } from 'src/dtos/vendor/vendor.request.dto';
 import { VendorResponse } from 'src/dtos/vendor/vendor.response.dto';
-import { LedgerSource, VendorLedgerEntryType, VendorStatus } from 'src/enums';
+import {
+  LedgerSource,
+  SaleKind,
+  SalePaymentMethod,
+  SaleStatus,
+  VendorLedgerEntryType,
+  VendorPaymentMethod,
+  VendorStatus,
+} from 'src/enums';
 import { CommonResponses } from 'src/helper/common.responses.helper';
 import { ShopInfo } from 'src/models/shop/shop-info.model';
 import { LedgerEntryService } from 'src/services/ledger-entry.service';
 import { ShopRepository } from 'src/repositories/shop.repository';
 import { VendorLedgerEntryRepository } from 'src/repositories/vendor-ledger-entry.repository';
 import { VendorRepository } from 'src/repositories/vendor.repository';
+import { CounterRepository } from 'src/repositories/counter.repository';
+import { RoleRepository } from 'src/repositories/role.repository';
+import { SaleRepository } from 'src/repositories/sale.repository';
+import { UserRepository } from 'src/repositories/user.repository';
+import { Sale } from 'src/schemas/sale.schema';
 import { Vendor } from 'src/schemas/vendor.schema';
 import { VendorLedgerEntry } from 'src/schemas/vendor-ledger-entry.schema';
-import { toPaginationInfo, toShopInfo } from 'src/utils';
+import {
+  buildReceiptNo,
+  resolveRequesterShopId,
+  toPaginationInfo,
+  toShopInfo,
+  toUserInfo,
+  toVendorInfo,
+} from 'src/utils';
 
 @Injectable()
 export class VendorService {
@@ -25,6 +45,10 @@ export class VendorService {
     private readonly vendorLedgerEntryRepository: VendorLedgerEntryRepository,
     private readonly shopRepository: ShopRepository,
     private readonly ledgerEntryService: LedgerEntryService,
+    private readonly saleRepository: SaleRepository,
+    private readonly counterRepository: CounterRepository,
+    private readonly userRepository: UserRepository,
+    private readonly roleRepository: RoleRepository,
   ) {}
 
   //get by id
@@ -167,18 +191,82 @@ export class VendorService {
     request: VendorPaymentRequest,
     recordedById: string,
   ): Promise<ApiResponseDto<VendorResponse>> {
+    return (await this.applyPayment(id, request, recordedById)).response;
+  }
+
+  /**
+   * The checkout "Collect debt" action: the same payment as recordPayment,
+   * but answered with the receipt (the DebtPayment sale) so the cashier can
+   * print or download it straight away. Only till payments - cash and
+   * mobile money - since those are the ones that produce a receipt.
+   */
+  async collectDebt(
+    id: string,
+    request: VendorPaymentRequest,
+    recordedById: string,
+  ): Promise<ApiResponseDto<Sale>> {
+    if (
+      request.method !== VendorPaymentMethod.Cash &&
+      request.method !== VendorPaymentMethod.MobileMoney
+    ) {
+      return CommonResponses.BadRequestResponse<Sale>(
+        undefined,
+        'Debts are collected in cash or mobile money',
+      );
+    }
+    const { response, sale } = await this.applyPayment(
+      id,
+      request,
+      recordedById,
+    );
+    if (response.code !== 200) {
+      return {
+        ...response,
+        data: undefined,
+      } as unknown as ApiResponseDto<Sale>;
+    }
+    if (!sale) {
+      return CommonResponses.InternalServerErrorResponse<Sale>(
+        'The payment was recorded but its receipt could not be created',
+      );
+    }
+    return CommonResponses.OkResponse<Sale>(sale);
+  }
+
+  private async applyPayment(
+    id: string,
+    request: VendorPaymentRequest,
+    recordedById: string,
+  ): Promise<{
+    response: ApiResponseDto<VendorResponse>;
+    sale: Sale | null;
+  }> {
     try {
+      // Someone tied to one shop can only take money at that shop, whatever
+      // the client sent - the receipt and cash belong to the till they are on.
+      const scopedShopId = await resolveRequesterShopId(
+        recordedById,
+        this.userRepository,
+      );
+      if (scopedShopId) request = { ...request, shopId: scopedShopId };
+
       const vendor = await this.vendorRepository.getById(id);
       if (!vendor) {
-        return CommonResponses.NotFoundResponse<VendorResponse>(
-          'Vendor not found',
-        );
+        return {
+          response: CommonResponses.NotFoundResponse<VendorResponse>(
+            'Vendor not found',
+          ),
+          sale: null,
+        };
       }
       const shop = await this.shopRepository.getById(request.shopId);
       if (!shop) {
-        return CommonResponses.NotFoundResponse<VendorResponse>(
-          'Shop not found',
-        );
+        return {
+          response: CommonResponses.NotFoundResponse<VendorResponse>(
+            'Shop not found',
+          ),
+          sale: null,
+        };
       }
 
       const date = request.date ? new Date(request.date) : new Date();
@@ -206,6 +294,8 @@ export class VendorService {
         });
       };
 
+      const balanceBefore = balance;
+      const allocations: { referenceId: string; amount: number }[] = [];
       let remaining = request.amount;
       const outstanding =
         await this.vendorLedgerEntryRepository.getOutstandingCharges(id);
@@ -217,6 +307,7 @@ export class VendorService {
           allocated,
         );
         await postPayment(allocated, charge.referenceId);
+        allocations.push({ referenceId: charge.referenceId, amount: allocated });
         remaining -= allocated;
       }
 
@@ -240,19 +331,95 @@ export class VendorService {
         },
       );
 
-      const updated = await this.vendorRepository.getById(id);
-      return CommonResponses.OkResponse<VendorResponse>(
-        await this.toVendorResponse(updated),
+      const sale = await this.recordDebtPaymentSale(
+        vendor,
+        shop,
+        request,
+        recordedById,
+        { allocations, balanceBefore, balanceAfter: balance },
       );
+
+      const updated = await this.vendorRepository.getById(id);
+      return {
+        response: CommonResponses.OkResponse<VendorResponse>(
+          await this.toVendorResponse(updated),
+        ),
+        sale,
+      };
     } catch (error) {
       this.logger.error(
         'an error occurred while recording a vendor payment',
         { id, request },
         error,
       );
-      return CommonResponses.InternalServerErrorResponse<VendorResponse>(
-        'An error occurred while recording a vendor payment',
+      return {
+        response: CommonResponses.InternalServerErrorResponse<VendorResponse>(
+          'An error occurred while recording a vendor payment',
+        ),
+        sale: null,
+      };
+    }
+  }
+
+  // The vendor may pay at any shop, not just the one the credit sale was
+  // made at, so the receiving shop gets a receipt and a line in its sales
+  // history. It is a SaleKind.DebtPayment: not revenue (the credit sale
+  // already counted), no items, no stock, no profit entry. Only cash and
+  // mobile money are till payments - a bank transfer stays ledger-only.
+  // Best-effort: the money and the vendor ledger are already recorded by the
+  // time this runs, so a failure here is logged rather than failing the
+  // payment.
+  private async recordDebtPaymentSale(
+    vendor: Vendor,
+    shop: Parameters<typeof toShopInfo>[0],
+    request: VendorPaymentRequest,
+    recordedById: string,
+    settlement: {
+      allocations: { referenceId: string; amount: number }[];
+      balanceBefore: number;
+      balanceAfter: number;
+    },
+  ): Promise<Sale | null> {
+    const method =
+      request.method === VendorPaymentMethod.Cash
+        ? SalePaymentMethod.Cash
+        : request.method === VendorPaymentMethod.MobileMoney
+          ? SalePaymentMethod.MobileMoney
+          : null;
+    if (!method) return null;
+    try {
+      const cashier = await this.userRepository.getById(recordedById);
+      const role = cashier?.roleId
+        ? await this.roleRepository.getById(cashier.roleId)
+        : null;
+      const seq = await this.counterRepository.next(`sale:${shop.id}`);
+      return await this.saleRepository.create({
+        shopId: shop.id,
+        shopInfoSnapshot: toShopInfo(shop),
+        cashierId: recordedById,
+        cashierInfoSnapshot: cashier ? toUserInfo(cashier, role?.name) : null,
+        receiptNo: buildReceiptNo(shop, seq),
+        items: [],
+        serviceItems: [],
+        subtotal: request.amount,
+        discount: 0,
+        total: request.amount,
+        paymentMethod: method,
+        isSplitSale: false,
+        status: SaleStatus.Completed,
+        vendorId: vendor.id,
+        vendorInfoSnapshot: toVendorInfo(vendor),
+        note: request.note || undefined,
+        kind: SaleKind.DebtPayment,
+        debtSettlement: settlement,
+      });
+    } catch (error) {
+      this.logger.error(
+        'a vendor payment was recorded but its receipt could not be created',
+        { vendorId: vendor.id, shopId: shop.id },
+        error,
       );
+      return null;
     }
   }
 

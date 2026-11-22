@@ -165,6 +165,48 @@ export const PERMISSION_FEATURES: PermissionFeature[] = [
     ],
   },
   {
+    feature: 'Instalments',
+    description: 'Payment plans and instalment sales',
+    permissions: [
+      {
+        key: 'instalment.plan.manage',
+        action: 'Manage plans',
+        description: 'Create, edit and remove instalment payment plans',
+      },
+      {
+        key: 'instalment.payment.record',
+        action: 'Take payment',
+        description: 'Record a deposit or instalment payment from a buyer',
+      },
+      {
+        key: 'instalment.release',
+        action: 'Release goods',
+        description: 'Hand over the goods once an instalment sale is fully paid',
+      },
+      {
+        key: 'instalment.cancel',
+        action: 'Cancel plan',
+        description: 'Cancel an instalment sale, return the stock and refund what was paid',
+      },
+    ],
+  },
+  {
+    feature: 'Day close',
+    description: "Closing a cashier's day: counting the till against what the system expects",
+    permissions: [
+      {
+        key: 'dayclose.create',
+        action: 'Close the day',
+        description: 'Count the till, record the difference and close your own day',
+      },
+      {
+        key: 'dayclose.view',
+        action: 'View closes',
+        description: "See other cashiers' day closes at the shop",
+      },
+    ],
+  },
+  {
     feature: 'Shop inventory',
     description: 'Inventory assigned to a shop',
     permissions: [

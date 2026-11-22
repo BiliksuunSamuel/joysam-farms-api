@@ -4,6 +4,7 @@ import { BaseSchema } from '.';
 import {
   DiscountLimitType,
   LowStockThresholdMode,
+  MomoMode,
   VoidApprovalMode,
 } from 'src/enums';
 import { UserInfo } from 'src/models/user/user-info.model';
@@ -116,6 +117,30 @@ export class Settings extends BaseSchema {
   @Prop({ type: String, default: null })
   @ApiProperty()
   checkoutDisabledMessage: string | null;
+
+  // ---- Mobile money ----
+
+  // Digital (Paystack) until the business chooses otherwise - a Settings
+  // document saved before this field existed reads it back as undefined,
+  // which must mean Digital, never Manual.
+  @Prop({ type: String, enum: MomoMode, default: MomoMode.Digital })
+  @ApiProperty({ enum: MomoMode })
+  momoMode: MomoMode;
+
+  // The business's own mobile money account, shown to cashiers (checkout,
+  // instalment and debt payments) so a customer can be told where to send
+  // the money. Required whenever momoMode is Manual.
+  @Prop({ type: String, default: null })
+  @ApiProperty()
+  momoProvider: string | null;
+
+  @Prop({ type: String, default: null })
+  @ApiProperty()
+  momoAccountNumber: string | null;
+
+  @Prop({ type: String, default: null })
+  @ApiProperty()
+  momoAccountName: string | null;
 
   // ---- Discounts ----
 

@@ -93,4 +93,19 @@ export class VendorController {
     const res = await this.vendorService.recordPayment(id, request, user.id);
     response.status(res.code).send(res);
   }
+
+  // Checkout's "Collect debt": the same payment, answered with the receipt.
+  @Post(':id/collect')
+  @AuthPermissions('vendor.payment.record')
+  @AuditLog('Vendor', 'DebtCollected')
+  @ApiParam({ name: 'id', type: String })
+  async collectDebt(
+    @Param('id') id: string,
+    @Body() request: VendorPaymentRequest,
+    @AuthUser() user: UserJwtDetails,
+    @Res() response: Response,
+  ) {
+    const res = await this.vendorService.collectDebt(id, request, user.id);
+    response.status(res.code).send(res);
+  }
 }

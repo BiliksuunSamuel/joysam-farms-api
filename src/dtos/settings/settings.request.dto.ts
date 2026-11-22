@@ -15,6 +15,7 @@ import {
 import {
   DiscountLimitType,
   LowStockThresholdMode,
+  MomoMode,
   VoidApprovalMode,
 } from 'src/enums';
 
@@ -129,6 +130,33 @@ export class SettingsRequest {
   })
   @IsString()
   checkoutDisabledMessage?: string;
+
+  // ---- Mobile money ----
+
+  @ApiProperty({ required: false, enum: MomoMode })
+  @IsOptional()
+  @IsEnum(MomoMode)
+  momoMode?: MomoMode;
+
+  // The account details are only mandatory while mobile money is taken
+  // manually - that is what cashiers read out to the customer.
+  @ApiProperty({ required: false })
+  @ValidateIf((o: SettingsRequest) => o.momoMode === MomoMode.Manual)
+  @IsNotEmpty({ message: 'The mobile money provider is required for manual payments' })
+  @IsString()
+  momoProvider?: string;
+
+  @ApiProperty({ required: false })
+  @ValidateIf((o: SettingsRequest) => o.momoMode === MomoMode.Manual)
+  @IsNotEmpty({ message: 'The mobile money number is required for manual payments' })
+  @IsString()
+  momoAccountNumber?: string;
+
+  @ApiProperty({ required: false })
+  @ValidateIf((o: SettingsRequest) => o.momoMode === MomoMode.Manual)
+  @IsNotEmpty({ message: 'The registered name is required for manual payments' })
+  @IsString()
+  momoAccountName?: string;
 
   // ---- Discounts ----
 

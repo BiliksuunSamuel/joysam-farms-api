@@ -14,12 +14,14 @@ import { ShopInfo } from 'src/models/shop/shop-info.model';
 import { UserInfo } from 'src/models/user/user-info.model';
 import { VendorInfo } from 'src/models/vendor/vendor-info.model';
 import {
+  SaleKind,
   SalePaymentMethod,
   SaleStatus,
   SalesTrendGroupBy,
   VoidRequestStatus,
 } from 'src/enums';
 import { Sale } from 'src/schemas/sale.schema';
+import { BaseFilter } from 'src/dtos/common/base.filter.dto';
 import { generateId, toPaginationInfo } from 'src/utils';
 
 export type CreateSaleRecord = {
@@ -46,7 +48,15 @@ export type CreateSaleRecord = {
   momoNetwork?: string;
   momoPhone?: string;
   payments?: PaymentSplit[];
+  kind?: SaleKind;
+  debtSettlement?: Sale['debtSettlement'];
+  parentSaleId?: string;
+  instalment?: Sale['instalment'];
 };
+
+// Records that are not revenue. `$ne` (not `kind: Sale`) so records created
+// before the field existed still match.
+const EXCLUDE_DEBT_PAYMENTS = { kind: { $ne: SaleKind.DebtPayment } };
 
 @Injectable()
 export class SaleRepository {
@@ -86,6 +96,7 @@ export class SaleRepository {
   ): Promise<Map<string, number>> {
     const match: any = {
       status: SaleStatus.Completed,
+      ...EXCLUDE_DEBT_PAYMENTS,
       createdAt: { $gte: since },
     };
     if (inventoryIds?.length)
@@ -116,6 +127,7 @@ export class SaleRepository {
   ): Promise<Map<string, number>> {
     const match: any = {
       status: SaleStatus.Completed,
+      ...EXCLUDE_DEBT_PAYMENTS,
       createdAt: { $gte: since },
     };
     if (opts?.shopId) match.shopId = opts.shopId;
@@ -155,6 +167,7 @@ export class SaleRepository {
     if (filter?.customerId) query.customerId = filter.customerId;
     if (filter?.paymentMethod) query.paymentMethod = filter.paymentMethod;
     if (filter?.status) query.status = filter.status;
+    if (filter?.kind) query.kind = filter.kind;
 
     const [results, totalCount] = await Promise.all([
       this.saleRepository
@@ -191,6 +204,7 @@ export class SaleRepository {
         $match: {
           customerId: { $in: customerIds },
           status: SaleStatus.Completed,
+          ...EXCLUDE_DEBT_PAYMENTS,
         },
       },
       {
@@ -218,7 +232,7 @@ export class SaleRepository {
   // together here rather than picking one, matching how the checkout
   // page's today-only KPI cards already treat "revenue" vs "voided".
   async getStats(filter: SaleFilter): Promise<SaleStatsResponse> {
-    const match: any = {};
+    const match: any = { ...EXCLUDE_DEBT_PAYMENTS };
     if (filter?.shopId) match.shopId = filter.shopId;
     if (filter?.cashierId) match.cashierId = filter.cashierId;
     if (filter?.customerId) match.customerId = filter.customerId;
@@ -275,7 +289,10 @@ export class SaleRepository {
   async getTrend(
     filter: SalesTrendFilter,
   ): Promise<{ key: string; label: string; value1: number; value2: number }[]> {
-    const match: any = { status: filter?.status ?? SaleStatus.Completed };
+    const match: any = {
+      status: filter?.status ?? SaleStatus.Completed,
+      ...EXCLUDE_DEBT_PAYMENTS,
+    };
     if (filter?.shopId) match.shopId = filter.shopId;
     if (filter?.cashierId) match.cashierId = filter.cashierId;
     if (filter?.paymentMethod) match.paymentMethod = filter.paymentMethod;
@@ -385,6 +402,7 @@ export class SaleRepository {
   ): Promise<{ method: SalePaymentMethod; revenue: number }[]> {
     const match: any = {
       status: SaleStatus.Completed,
+      ...EXCLUDE_DEBT_PAYMENTS,
       createdAt: { $gte: startDate, $lt: endDate },
     };
     if (shopId) match.shopId = shopId;
@@ -423,7 +441,10 @@ export class SaleRepository {
   async getPaymentMethodBreakdown(
     filter: SaleFilter,
   ): Promise<{ method: SalePaymentMethod; revenue: number }[]> {
-    const match: any = { status: SaleStatus.Completed };
+    const match: any = {
+      status: SaleStatus.Completed,
+      ...EXCLUDE_DEBT_PAYMENTS,
+    };
     if (filter?.shopId) match.shopId = filter.shopId;
     if (filter?.startDate || filter?.endDate) {
       match.createdAt = {};
@@ -451,6 +472,178 @@ export class SaleRepository {
     return results.map((r) => ({ method: r._id, revenue: r.revenue }));
   }
 
+  //money collected from vendors paying down their credit, over a fixed date
+  //range - kept apart from sales revenue (see SaleKind.DebtPayment) so a
+  //cashier's takings and the payment-method totals stay sales-only. Grouped
+  //per method (Cash / MobileMoney). shopId/cashierId undefined = everyone.
+  async getDebtPaymentTotals(
+    startDate: Date,
+    endDate: Date,
+    scope?: { shopId?: string; cashierId?: string },
+  ): Promise<{ method: SalePaymentMethod; amount: number; count: number }[]> {
+    const match: any = {
+      kind: SaleKind.DebtPayment,
+      status: SaleStatus.Completed,
+      createdAt: { $gte: startDate, $lt: endDate },
+    };
+    if (scope?.shopId) match.shopId = scope.shopId;
+    if (scope?.cashierId) match.cashierId = scope.cashierId;
+    const rows = await this.saleRepository.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: '$paymentMethod',
+          amount: { $sum: '$total' },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+    return rows.map((r) => ({
+      method: r._id,
+      amount: r.amount,
+      count: r.count,
+    }));
+  }
+
+  // Instalment sales across every shop (a buyer can pay at any shop), by
+  // plan status and a search over receipt number / customer name / phone.
+  async listInstalments(
+    filter: BaseFilter & { status?: string; shopId?: string },
+  ): Promise<{ results: Sale[]; totalCount: number }> {
+    const { page, pageSize } = toPaginationInfo(filter);
+    const query: any = { status: { $in: [SaleStatus.Instalment, SaleStatus.Voided] }, instalment: { $ne: null } };
+    if (filter?.shopId) query.shopId = filter.shopId;
+    if (filter?.status) query['instalment.status'] = filter.status;
+    const q = filter?.query?.trim();
+    if (q) {
+      const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      query.$or = [
+        { receiptNo: rx },
+        { 'customerInfoSnapshot.name': rx },
+        { 'customerInfoSnapshot.phone': rx },
+      ];
+    }
+    const [results, totalCount] = await Promise.all([
+      this.saleRepository
+        .find(query)
+        .sort({ createdAt: -1, _id: 1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize)
+        .lean(),
+      this.saleRepository.countDocuments(query),
+    ]);
+    return { results, totalCount };
+  }
+
+  // Moves an instalment sale's state forward - only if its paid total is
+  // still what the caller read (`expectedPaidTotal`), so two payments taken
+  // at once can't both be applied to the same schedule. Returns null when
+  // someone else got there first.
+  async updateInstalment(
+    id: string,
+    expectedPaidTotal: number,
+    instalment: Sale['instalment'],
+  ): Promise<Sale | null> {
+    return await this.saleRepository
+      .findOneAndUpdate(
+        {
+          id,
+          status: SaleStatus.Instalment,
+          'instalment.paidTotal': expectedPaidTotal,
+        },
+        { $set: { instalment } },
+        { new: true },
+      )
+      .lean();
+  }
+
+  // Release and cancel: flip an instalment sale to its end state, only from
+  // one of the allowed current states.
+  async finishInstalment(
+    id: string,
+    from: string[],
+    instalment: Sale['instalment'],
+    status: SaleStatus,
+  ): Promise<Sale | null> {
+    return await this.saleRepository
+      .findOneAndUpdate(
+        {
+          id,
+          status: SaleStatus.Instalment,
+          'instalment.status': { $in: from },
+        },
+        { $set: { instalment, status } },
+        { new: true },
+      )
+      .lean();
+  }
+
+  // One cashier's records at one shop over a window - the day close adds these
+  // up. Includes debt and instalment payments (they are money in the till too).
+  async listForCashierBetween(
+    shopId: string,
+    cashierId: string,
+    start: Date,
+    end: Date,
+  ): Promise<Sale[]> {
+    return await this.saleRepository
+      .find({ shopId, cashierId, createdAt: { $gte: start, $lt: end } })
+      .lean();
+  }
+
+  // Plans one cashier cancelled at a shop in a window - each one paid a refund
+  // out of that shop's till (see InstalmentSaleService.cancel).
+  async listCancelledBy(
+    shopId: string,
+    cashierId: string,
+    start: Date,
+    end: Date,
+  ): Promise<Sale[]> {
+    return await this.saleRepository
+      .find({
+        shopId,
+        'instalment.cancelledById': cashierId,
+        'instalment.cancelledAt': { $gte: start, $lt: end },
+      })
+      .lean();
+  }
+
+  // Who handled money in a window, across shops (or one) - the day-close
+  // status only needs the cashier, not the whole record.
+  async listActivityBetween(
+    start: Date,
+    end: Date,
+    shopId?: string,
+  ): Promise<
+    Pick<Sale, 'shopId' | 'cashierId' | 'cashierInfoSnapshot' | 'createdAt'>[]
+  > {
+    return await this.saleRepository
+      .find({
+        createdAt: { $gte: start, $lt: end },
+        status: SaleStatus.Completed,
+        ...(shopId ? { shopId } : {}),
+      })
+      .select('shopId cashierId cashierInfoSnapshot createdAt')
+      .lean();
+  }
+
+  // Every payment taken towards a plan, oldest first (the deposit is first).
+  async listInstalmentPayments(parentSaleId: string): Promise<Sale[]> {
+    return await this.saleRepository
+      .find({ parentSaleId, kind: SaleKind.InstalmentPayment })
+      .sort({ createdAt: 1 })
+      .lean();
+  }
+
+  // Cancelling a plan voids every payment taken towards it, so the revenue
+  // (and profit) they recorded drops out; the fee kept is re-recorded.
+  async voidInstalmentPayments(parentSaleId: string): Promise<void> {
+    await this.saleRepository.updateMany(
+      { parentSaleId, kind: SaleKind.InstalmentPayment },
+      { $set: { status: SaleStatus.Voided } },
+    );
+  }
+
   //count + total value of split sales for a fixed date range - used by the
   //Daily Report. shopId undefined = every shop.
   async getSplitSalesTotals(
@@ -461,6 +654,7 @@ export class SaleRepository {
     const match: any = {
       isSplitSale: true,
       status: SaleStatus.Completed,
+      ...EXCLUDE_DEBT_PAYMENTS,
       createdAt: { $gte: startDate, $lt: endDate },
     };
     if (shopId) match.shopId = shopId;
@@ -511,6 +705,9 @@ export class SaleRepository {
     return {
       id,
       status: SaleStatus.Completed,
+      // a vendor's debt payment, or a payment towards an instalment sale,
+      // can't be voided here - each would have to reverse its own account
+      kind: { $nin: [SaleKind.DebtPayment, SaleKind.InstalmentPayment] },
       $or: [
         { voidRequest: null },
         { 'voidRequest.status': { $ne: VoidRequestStatus.Pending } },
