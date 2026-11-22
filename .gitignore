@@ -54,3 +54,6 @@ pids
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Chrome that Puppeteer downloads for PDF receipts (see .puppeteerrc.cjs)
+/.cache
